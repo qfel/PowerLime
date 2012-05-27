@@ -1,0 +1,50 @@
+[
+    {
+        "caption": "Sort Python Imports",
+        "command": "sort_python_imports"
+    },
+    {
+        "caption": "Run Text Command",
+        "command": "run_text_command"
+    },
+    {
+        "caption": "Run Window Command",
+        "command": "run_window_command"
+    },
+    {
+        "caption": "Run Application Command",
+        "command": "run_application_command"
+    },
+    {
+        "caption": "Mark Changes",
+        "command": "mark_changes"
+    },
+    {
+        "caption": "Unmark Changes",
+        "command": "unmark_changes"
+    },
+    {
+        "caption": "Group: Same Extension + Others",
+        "command": "group_views",
+        "args": {
+            "filters": ["$ext$", ""]
+        }
+    },
+    {
+        "caption": "Group: Common Path + Others",
+        "command": "group_views",
+        "args": {
+            "filters": ["^$dir/", ""]
+        }
+    },
+    {
+        "caption": "Group: Others + Models/Views/Urls",
+        "command": "group_views",
+        "args": {
+            "filters": [
+                ["/(?:models|views|urls)\\.py$", 1],
+                ""
+            ]
+        }
+    }
+]

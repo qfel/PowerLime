@@ -15,10 +15,16 @@ from itertools import groupby
 from string import Template
 from types import BuiltinMethodType, MethodType
 
-from SublimeLinter import syntax_name
 from sublime_plugin import ApplicationCommand, EventListener, TextCommand, \
     WindowCommand, application_command_classes, text_command_classes, \
     window_command_classes
+
+
+# Taken from SublimeLinter
+def syntax_name(view):
+    syntax = os.path.basename(view.settings().get('syntax'))
+    syntax = os.path.splitext(syntax)[0]
+    return syntax
 
 
 class PythonImportFormatter(object):

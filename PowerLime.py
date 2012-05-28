@@ -13,6 +13,7 @@ from functools import partial
 from inspect import getargspec
 from itertools import groupby
 from string import Template
+from subprocess import Popen, PIPE
 from types import BuiltinMethodType, MethodType
 
 from sublime_plugin import ApplicationCommand, EventListener, TextCommand, \
@@ -476,9 +477,9 @@ class GroupViewsCommand(WindowCommand):
 
     def run(self, filters):
         win = self.window
-        original_view = win.active_view()
+        org_view = win.active_view()
 
-        args = {'path': self._normalize_path(original_view.file_name())}
+        args = {'path': self._normalize_path(org_view.file_name())}
         args['dir'], args['file'] = os.path.split(args['path'])
         args['base'], args['ext'] = os.path.splitext(args['file'])
         for k, v in args.iteritems():
@@ -492,7 +493,7 @@ class GroupViewsCommand(WindowCommand):
                 assert len(filters[i]) == 2
                 groups.remove(filters[i][1])
 
-        for view in win.views():
+        for view in reversed(win.views()):
             path = view.file_name()
             if path is None:
                 continue
@@ -501,8 +502,70 @@ class GroupViewsCommand(WindowCommand):
             for regex, group in filters:
                 regex = Template(regex).safe_substitute(args)
                 if re.search(regex, path):
-                    win.focus_view(view)
-                    win.run_command('move_to_group', {'group': group})
+                    win.set_view_index(view, group, 0)
                     break
 
-        win.focus_view(original_view)
+        win.focus_view(org_view)
+
+
+class HelpCommand(TextCommand):
+    DOC_PANEL = 'doc-panel'
+
+    def run(self, edit):
+        sel = self.view.sel()
+        if len(sel) != 1:
+            sublime.error_message('Multiple selections not supported')
+            return
+
+        sel = sel[0]
+        if sel.empty():
+            sel = self.view.word(sel.a)
+
+        doc_on = self.view.substr(sel)
+        doc = self.get_doc(doc_on)
+        if doc is None:
+            sublime.error_message('Not found')
+            return
+
+        win = sublime.active_window()
+        output = win.get_output_panel(self.DOC_PANEL)
+        output.set_read_only(False)
+        output.set_name(doc_on)
+
+        edit = output.begin_edit()
+        output.erase(edit, sublime.Region(0, output.size()))
+        output.insert(edit, 0, doc)
+        output.end_edit(edit)
+
+        output.set_read_only(True)
+        win.run_command('show_panel', {'panel': 'output.' + self.DOC_PANEL})
+
+    def get_doc(self, on):
+        try:
+            proc = Popen(['pydoc', on], stdout=PIPE)
+        except OSError:
+            return None
+        output = proc.stdout.read()
+        if proc.wait() != 0:
+            return None
+        return output
+
+
+class MoveToVisibleCommand(TextCommand):
+    def run(self, edit, position):
+        def set_sel(pos):
+            sel = view.sel()
+            sel.clear()
+            sel.add(sublime.Region(pos))
+
+        view = self.view
+        visible = view.visible_region()
+
+        if position == 'begin':
+            set_sel(visible.begin())
+        elif position == 'end':
+            set_sel(visible.end())
+        elif position == 'center':
+            r1, _ = view.rowcol(visible.begin())
+            r2, _ = view.rowcol(visible.end())
+            set_sel(view.text_point((r1 + r2) // 2, 0))

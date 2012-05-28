@@ -9,3 +9,9 @@ Available commands
 
 To get an idea of how new things work, look at Default.sublime-commands.
 It's especially easy with new "Run Application/Window/Text command" commands.
+
+Installation
+============
+Use "Package Control: Add Repository" command and type
+https://github.com/piotr-kufel/PowerLime
+Then you can install the package with "Package Control: Install Package"

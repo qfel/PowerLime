@@ -464,6 +464,21 @@ class SwitchViewInGroupCommand(WindowCommand):
         views = win.views_in_group(group)
         win.focus_view(views[(index + delta) % len(views)])
 
+    def is_enabled(self):
+        win = self.window
+        return bool(win.views_in_group(win.active_group()))
+
+
+class SwitchGroupCommand(WindowCommand):
+    ''' Switch groups '''
+
+    def run(self, delta):
+        win = self.window
+        win.focus_group((win.active_group() + delta) % win.num_groups())
+
+    def is_enabled(self):
+        return self.window.num_groups() > 1
+
 
 class GroupViewsCommand(WindowCommand):
     ''' Move views to groups based on regular expressions '''
@@ -569,3 +584,20 @@ class MoveToVisibleCommand(TextCommand):
             r1, _ = view.rowcol(visible.begin())
             r2, _ = view.rowcol(visible.end())
             set_sel(view.text_point((r1 + r2) // 2, 0))
+
+
+class MoveAllToGroupCommand(WindowCommand):
+    def run(self, group):
+        win = self.window
+
+        active_group = win.active_group()
+        if group == 'next':
+            group = (active_group + 1) % win.num_groups()
+        elif group == 'prev':
+            group = (active_group - 1) % win.num_groups()
+
+        for view in reversed(win.views_in_group(active_group)):
+            win.set_view_index(view, group, 0)
+
+    def is_enabled(self):
+        return self.window.active_view() is not None

@@ -9,6 +9,7 @@ import re
 import sublime
 
 from difflib import SequenceMatcher
+from operator import le, ge
 from functools import partial
 from inspect import getargspec
 from itertools import groupby
@@ -478,6 +479,61 @@ class SwitchGroupCommand(WindowCommand):
 
     def is_enabled(self):
         return self.window.num_groups() > 1
+
+
+class SwitchGroupTwoDimCommand(WindowCommand):
+    ''' Switch groups 2D '''
+
+    def run(self, edge):
+        win = self.window
+        cells = win.get_layout()['cells']
+        group = self._find_adjacent(cells, cells[win.active_group()], edge)
+        win.focus_group(group)
+
+    def is_enabled(self):
+        return self.window.num_groups() > 1
+
+    def _find_adjacent(self, cells, cell, component):
+        if len(component) != 2:
+            raise ValueError('Invalid component: ' + component)
+        if component[0] == 'x':
+            proj_scalar = 0
+            proj_range = (1, 3)
+        elif component[0] == 'y':
+            proj_scalar = 1
+            proj_range = (0, 2)
+        else:
+            raise ValueError('Invalid component: ' + component)
+        if component[1] not in '12':
+            raise ValueError('Invalid component: ' + component)
+        proj_scalar += int(component[1]) * 2 - 2
+
+        a1 = cell[proj_range[0]]
+        b1 = cell[proj_range[1]]
+
+        scalar = cell[proj_scalar]
+        proj_scalar = (proj_scalar + 2) % 4
+        if proj_scalar < 2:
+            pred = le
+        else:
+            pred = ge
+
+        best = None
+        for i in xrange(len(cells)):
+            a2 = cells[i][proj_range[0]]
+            b2 = cells[i][proj_range[1]]
+            if b2 <= a1 or b1 <= a2:
+                continue
+            if not pred(cells[i][proj_scalar], scalar):
+                continue
+            if best is not None and (
+                    pred(cells[i][proj_scalar], cells[best][proj_scalar]) or
+                    a2 > cells[best][proj_range[0]]
+                ):
+                continue
+            best = i
+
+        return best
 
 
 class GroupViewsCommand(WindowCommand):

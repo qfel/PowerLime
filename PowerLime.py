@@ -8,13 +8,14 @@ import re
 
 import sublime
 
+from collections import defaultdict
 from difflib import SequenceMatcher
-from operator import le, ge
 from functools import partial
 from inspect import getargspec
 from itertools import groupby
+from operator import ge, le
 from string import Template
-from subprocess import Popen, PIPE
+from subprocess import PIPE, Popen
 from types import BuiltinMethodType, MethodType
 
 from sublime_plugin import ApplicationCommand, EventListener, TextCommand, \
@@ -115,7 +116,6 @@ class PythonImportFormatter(object):
                 flush()
                 key = new_key
                 if group_size >= self.min_group_size:
-                    print group_size
                     self._output.append('')
                     group_start = None
                 else:
@@ -582,17 +582,84 @@ class GroupViewsCommand(WindowCommand):
 class HelpCommand(TextCommand):
     DOC_PANEL = 'doc-panel'
 
+    _index = None
+
     def run(self, edit):
         sel = self.view.sel()
         if len(sel) != 1:
             sublime.error_message('Multiple selections not supported')
             return
 
-        sel = sel[0]
-        if sel.empty():
-            sel = self.view.word(sel.a)
+        if self._index is None:
+            self._load_index()
 
-        doc_on = self.view.substr(sel)
+        sel = sel[0]
+        if not sel.empty():
+            sym = self.view.substr(sel)
+            if sym not in self._index:
+                return sublime.error_message('Not found')
+            self._path = [sym]
+            self._tree = self._index[sym]
+        else:
+            self._path = []
+            self._tree = self._index
+        self._disambiguate_symbol()
+
+    def _load_index(self):
+        def recursive_dict():
+            return defaultdict(recursive_dict)
+
+        self._index = recursive_dict()
+        path = []
+        for line in open('/home/qfel/tagasauris/tmp/index.txt'):
+            sym = line.lstrip()
+            indent = len(line) - len(sym)
+            sym = sym.rstrip()
+            while len(path) > indent:
+                path.pop()
+            path.append(sym)
+            for i in xrange(len(path)):
+                index = self._index
+                for sym in path[i:-len(path)-1:-1]:
+                    index = index[sym]
+                index[None] = None
+
+    def _disambiguate_symbol(self):
+        while len(self._tree) == 1:
+            sym, sub_tree = next(iter(self._tree.iteritems()))
+            if sub_tree is None:
+                return self._show_doc(u'.'.join(reversed(self._path)))
+            self._path.append(sym)
+            self._tree = sub_tree
+
+        final = False
+        self._labels = []
+        self._trees = []
+        for name, sub_tree in self._tree.iteritems():
+            if sub_tree is None:
+                final = True
+                continue
+            self._labels.append(name)
+            self._trees.append(sub_tree)
+
+        if final:
+            self._labels.append('<done>')
+            self._trees.append(None)
+
+        self.view.window().show_quick_panel(self._labels, self._on_user_choice)
+
+    def _on_user_choice(self, index):
+        if index == -1:
+            return
+
+        if self._trees[index] is None:
+            return self._show_doc(u'.'.join(reversed(self._path)))
+
+        self._tree = self._trees[index]
+        self._path.append(self._labels[index])
+        self._disambiguate_symbol()
+
+    def _show_doc(self, doc_on):
         doc = self.get_doc(doc_on)
         if doc is None:
             sublime.error_message('Not found')

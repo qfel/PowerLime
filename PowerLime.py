@@ -666,9 +666,9 @@ class HelpCommand(TextCommand):
             return
 
         win = sublime.active_window()
-        output = win.get_output_panel(self.DOC_PANEL)
-        output.set_read_only(False)
-        output.set_name(doc_on)
+        output = win.new_file()
+        output.set_scratch(True)
+        output.set_name('Help on ' + doc_on)
 
         edit = output.begin_edit()
         output.erase(edit, sublime.Region(0, output.size()))
@@ -676,7 +676,7 @@ class HelpCommand(TextCommand):
         output.end_edit(edit)
 
         output.set_read_only(True)
-        win.run_command('show_panel', {'panel': 'output.' + self.DOC_PANEL})
+        # win.run_command('show_panel', {'panel': 'output.' + self.DOC_PANEL})
 
     def get_doc(self, on):
         try:

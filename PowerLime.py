@@ -690,10 +690,9 @@ class HelpCommand(TextCommand):
 
     def _show_doc(self):
         sym = self._get_current_symbol()
-        doc = self.get_doc(sym)
+        doc = self._get_doc(sym)
         if doc is None:
-            sublime.error_message('Internal help system error')
-            return
+            return sublime.error_message('Internal help system error')
 
         win = sublime.active_window()
         output = win.new_file()
@@ -707,9 +706,14 @@ class HelpCommand(TextCommand):
 
         output.set_read_only(True)
 
-    def get_doc(self, on):
+        settings = output.settings()
+        settings.set('rulers', [])
+        settings.set('line_numbers', False)
+        settings.set('spell_check', False)
+
+    def _get_doc(self, sym):
         try:
-            proc = Popen(['pydoc', on], stdout=PIPE)
+            proc = Popen(['pydoc', sym], stdout=PIPE)
         except OSError:
             return None
         output = proc.stdout.read()

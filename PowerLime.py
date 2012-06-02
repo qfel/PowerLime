@@ -1,10 +1,12 @@
 from __future__ import division
 
 import ast
+import cPickle as pickle
 import json
 import os
 import os.path
 import re
+import sys
 
 import sublime
 
@@ -801,3 +803,27 @@ class QueryUrlCommand(TextCommand):
             url = text
         print 'open', url
         self.view.window().run_command('open_url', {'url': url})
+
+
+class HoogleCommand(TextCommand):
+    EXTERNAL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__),
+        'external'))
+
+    def run(self, edit):
+        view = self.view
+        sel = view.sel()
+        if len(sel) != 1:
+            return sublime.error_message('Multiple selections not supported')
+        sel = sel[0]
+
+        url = view.substr(sel)
+        results = self._call('hoogle', url)
+        view.window().show_quick_panel(results, lambda x: None)
+
+    def _call(self, name, *args):
+        args = ('python', os.path.join(self.EXTERNAL_PATH, name + '.py')) + args
+        proc = Popen(args, stdout=PIPE)
+        data = pickle.load(proc.stdout.read())
+        if proc.wait() != 0:
+            return None
+        return data

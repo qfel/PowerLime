@@ -580,38 +580,54 @@ class GroupViewsCommand(WindowCommand):
 
 
 class HelpCommand(TextCommand):
-    DOC_PANEL = 'doc-panel'
-
-    _index = None
+    _index = {}
 
     def run(self, edit):
+        self._syntax = syntax_name(self.view)
+
         sel = self.view.sel()
         if len(sel) != 1:
-            sublime.error_message('Multiple selections not supported')
-            return
-
-        if self._index is None:
-            self._load_index()
+            return sublime.error_message('Multiple selections not supported')
 
         sel = sel[0]
-        if not sel.empty():
-            sym = self.view.substr(sel)
-            if sym not in self._index:
-                return sublime.error_message('Not found')
-            self._path = [sym]
-            self._tree = self._index[sym]
-        else:
-            self._path = []
-            self._tree = self._index
+        if sel.empty():
+            sel = self.view.word(sel)
+        sym = self.view.substr(sel)
+
+        self._path = []
+        self._choice_index = self._get_index()
+        if sym in self._choice_index:
+            self._choice_index = self._choice_index[sym]
+            self._path.append(sym)
+
         self._disambiguate_symbol()
 
-    def _load_index(self):
+    def is_enabled(self):
+        self._syntax = syntax_name(self.view)
+        return bool(self._get_index_path())
+
+    def _get_index_path(self):
+        return self.view.settings().get('help_{0}_index'.format(self._syntax))
+
+    def _get_index(self):
+        index = self._index.get(self._syntax)
+        if index is not None:
+            return index
+
+        path = self._get_index_path()
+        if path is None:
+            return None
+
+        index = self._index[self._syntax] = self._load_index(path)
+        return index
+
+    def _load_index(self, file_name):
         def recursive_dict():
             return defaultdict(recursive_dict)
 
-        self._index = recursive_dict()
+        index = recursive_dict()
         path = []
-        for line in open('/home/qfel/tagasauris/tmp/index.txt'):
+        for line in open(file_name):
             sym = line.lstrip()
             indent = len(line) - len(sym)
             sym = sym.rstrip()
@@ -619,56 +635,64 @@ class HelpCommand(TextCommand):
                 path.pop()
             path.append(sym)
             for i in xrange(len(path)):
-                index = self._index
-                for sym in path[i:-len(path)-1:-1]:
-                    index = index[sym]
-                index[None] = None
+                sub_index = index
+                for sym in path[i::-1]:
+                    sub_index = sub_index[sym]
+                sub_index[None] = None
+
+        assert len(index) != 1 or None not in index
+        return index
 
     def _disambiguate_symbol(self):
-        while len(self._tree) == 1:
-            sym, sub_tree = next(iter(self._tree.iteritems()))
-            if sub_tree is None:
-                return self._show_doc(u'.'.join(reversed(self._path)))
+        while len(self._choice_index) == 1:
+            sym, next_index = next(self._choice_index.itervalues())
+            if next_index is None:
+                return self._show_doc()
+            self._choice_index = next_index
             self._path.append(sym)
-            self._tree = sub_tree
 
-        final = False
+        has_final = False
         self._labels = []
-        self._trees = []
-        for name, sub_tree in self._tree.iteritems():
-            if sub_tree is None:
-                final = True
-                continue
-            self._labels.append(name)
-            self._trees.append(sub_tree)
+        self._choices = []
+        for sym, sub_index in self._choice_index.iteritems():
+            if sub_index is not None:
+                self._labels.append(sym)
+                self._choices.append(sub_index)
+            else:
+                has_final = True
 
-        if final:
-            self._labels.append('<done>')
-            self._trees.append(None)
+        if has_final:
+            self._labels.append(u'<select {0}>'.format(
+                self._get_current_symbol()))
+            self._choices.append(None)
 
         self.view.window().show_quick_panel(self._labels, self._on_user_choice)
+
+    def _get_current_symbol(self):
+        return u'.'.join(reversed(self._path))
 
     def _on_user_choice(self, index):
         if index == -1:
             return
 
-        if self._trees[index] is None:
-            return self._show_doc(u'.'.join(reversed(self._path)))
+        if self._choice_index[index] is None:
+            return self._show_doc()
 
-        self._tree = self._trees[index]
+        self._choice_index = self._choices[index]
         self._path.append(self._labels[index])
         self._disambiguate_symbol()
 
-    def _show_doc(self, doc_on):
-        doc = self.get_doc(doc_on)
+    def _show_doc(self):
+        sym = self._get_current_symbol()
+        doc = self.get_doc(sym)
         if doc is None:
-            sublime.error_message('Not found')
+            sublime.error_message('Internal help system error')
             return
 
         win = sublime.active_window()
         output = win.new_file()
         output.set_scratch(True)
-        output.set_name('Help on ' + doc_on)
+        output.set_name('Help on ' + sym)
 
         edit = output.begin_edit()
         output.erase(edit, sublime.Region(0, output.size()))
@@ -676,7 +700,6 @@ class HelpCommand(TextCommand):
         output.end_edit(edit)
 
         output.set_read_only(True)
-        # win.run_command('show_panel', {'panel': 'output.' + self.DOC_PANEL})
 
     def get_doc(self, on):
         try:

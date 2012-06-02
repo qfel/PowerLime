@@ -23,11 +23,10 @@ from sublime_plugin import ApplicationCommand, EventListener, TextCommand, \
     window_command_classes
 
 
-# Taken from SublimeLinter
 def syntax_name(view):
     syntax = os.path.basename(view.settings().get('syntax'))
     syntax = os.path.splitext(syntax)[0]
-    return syntax
+    return syntax.lower()
 
 
 class PythonImportFormatter(object):
@@ -580,9 +579,11 @@ class GroupViewsCommand(WindowCommand):
 
 
 class HelpCommand(TextCommand):
+    ''' Display internal [Python] help index '''
+
     _index = {}
 
-    def run(self, edit):
+    def run(self, edit, auto_select=True):
         self._syntax = syntax_name(self.view)
 
         sel = self.view.sel()
@@ -591,8 +592,12 @@ class HelpCommand(TextCommand):
 
         sel = sel[0]
         if sel.empty():
-            sel = self.view.word(sel)
-        sym = self.view.substr(sel)
+            if auto_select:
+                sym = self.view.substr(self.view.word(sel))
+            else:
+                sym = False
+        else:
+            sym = self.view.substr(sel)
 
         self._path = []
         self._choice_index = self._get_index()
@@ -607,7 +612,7 @@ class HelpCommand(TextCommand):
         return bool(self._get_index_path())
 
     def _get_index_path(self):
-        return self.view.settings().get('help_{0}_index'.format(self._syntax))
+        return self.view.settings().get('help_index', {}).get(self._syntax)
 
     def _get_index(self):
         index = self._index.get(self._syntax)
@@ -640,12 +645,13 @@ class HelpCommand(TextCommand):
                     sub_index = sub_index[sym]
                 sub_index[None] = None
 
-        assert len(index) != 1 or None not in index
         return index
 
     def _disambiguate_symbol(self):
+        if self._choice_index is None:
+            return self._show_doc()
         while len(self._choice_index) == 1:
-            sym, next_index = next(self._choice_index.itervalues())
+            sym, next_index = next(self._choice_index.iteritems())
             if next_index is None:
                 return self._show_doc()
             self._choice_index = next_index
@@ -662,7 +668,7 @@ class HelpCommand(TextCommand):
                 has_final = True
 
         if has_final:
-            self._labels.append(u'<select {0}>'.format(
+            self._labels.append(u'<{0}>'.format(
                 self._get_current_symbol()))
             self._choices.append(None)
 
@@ -675,7 +681,7 @@ class HelpCommand(TextCommand):
         if index == -1:
             return
 
-        if self._choice_index[index] is None:
+        if self._choices[index] is None:
             return self._show_doc()
 
         self._choice_index = self._choices[index]

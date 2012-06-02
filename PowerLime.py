@@ -696,20 +696,24 @@ class HelpCommand(TextCommand):
 
         win = sublime.active_window()
         output = win.new_file()
-        output.set_scratch(True)
-        output.set_name('Help on ' + sym)
 
         edit = output.begin_edit()
         output.erase(edit, sublime.Region(0, output.size()))
         output.insert(edit, 0, doc)
         output.end_edit(edit)
 
+        output.set_scratch(True)
+        output.set_name('Help on ' + sym)
         output.set_read_only(True)
+        sel = output.sel()
+        sel.clear()
+        sel.add(sublime.Region(0))
 
         settings = output.settings()
         settings.set('rulers', [])
         settings.set('line_numbers', False)
         settings.set('spell_check', False)
+        settings.set('gutter', False)
 
     def _get_doc(self, sym):
         try:

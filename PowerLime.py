@@ -17,6 +17,8 @@ from operator import ge, le
 from string import Template
 from subprocess import PIPE, Popen
 from types import BuiltinMethodType, MethodType
+from urllib import urlencode
+from urlparse import SplitResult, parse_qs, urlsplit, urlunsplit
 
 from sublime_plugin import ApplicationCommand, EventListener, TextCommand, \
     WindowCommand, application_command_classes, text_command_classes, \
@@ -761,3 +763,41 @@ class MoveAllToGroupCommand(WindowCommand):
 
     def is_enabled(self):
         return self.window.active_view() is not None
+
+
+class QueryUrlCommand(TextCommand):
+    def run(self, edit, mode, select='selection'):
+        view = self.view
+        mode = view.settings().get('open_url', {}).get(mode)
+        if mode is None:
+            return sublime.error_message('Invalid URL open mode')
+
+        sel = view.sel()
+        if len(sel) != 1:
+            return sublime.error_message('Multiple selections not supported')
+        sel = sel[0]
+
+        if not sel.empty():
+            initial_text = view.substr(sel[0])
+        elif select != 'selection':
+            initial_text = view.substr(view.word(sel))
+        else:
+            initial_text = ''
+
+        if select == 'auto':
+            self._open(mode, initial_text)
+        else:
+            view.window().show_input_panel(mode.get('prompt', 'Open'),
+                initial_text, partial(self._open, mode), None, None)
+
+    def _open(self, mode, text):
+        if mode is not True:
+            url = urlsplit(mode['url'])._asdict()
+            query = parse_qs(url['query'])
+            query[mode['get']] = text
+            url['query'] = urlencode(query)
+            url = urlunsplit(SplitResult(**url))
+        else:
+            url = text
+        print 'open', url
+        self.view.window().run_command('open_url', {'url': url})

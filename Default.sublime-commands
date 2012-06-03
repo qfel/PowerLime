@@ -46,5 +46,9 @@
                 ""
             ]
         }
+    },
+    {
+        "caption": "Hoogle Search",
+        "command": "hoogle"
     }
 ]

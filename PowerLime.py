@@ -1,6 +1,7 @@
 from __future__ import division
 
 import ast
+import cPickle as pickle
 import json
 import os
 import os.path
@@ -181,12 +182,13 @@ class SortPythonImportsCommand(TextCommand):
             kwargs['wrap_at'] = min(rulers)
         formatter = PythonImportFormatter(**kwargs)
 
-        for region in view.sel():
+        sel = view.sel()
+        if len(sel) == 1 and sel[0].empty():
+            sel = view.find_all(r'(?:(?:^import\s.*)\n)+', 0)
+
+        for region in sel:
             region = view.line(region)
             view.replace(edit, region, formatter.format(view.substr(region)))
-
-    def is_enabled(self):
-        return syntax_name(self.view).lower() == 'python'
 
 
 class RunCommand(object):
@@ -765,6 +767,14 @@ class MoveAllToGroupCommand(WindowCommand):
         return self.window.active_view() is not None
 
 
+def add_query_args(url, args):
+    url = urlsplit(url)._asdict()
+    query = parse_qs(url['query'])
+    query.update(args)
+    url['query'] = urlencode(query)
+    return urlunsplit(SplitResult(**url))
+
+
 class QueryUrlCommand(TextCommand):
     def run(self, edit, mode, select='selection'):
         view = self.view
@@ -792,11 +802,78 @@ class QueryUrlCommand(TextCommand):
 
     def _open(self, mode, text):
         if mode is not True:
-            url = urlsplit(mode['url'])._asdict()
-            query = parse_qs(url['query'])
-            query[mode['get']] = text
-            url['query'] = urlencode(query)
-            url = urlunsplit(SplitResult(**url))
+            url = add_query_args(mode['url'], {mode['get']: text})
         else:
             url = text
         self.view.window().run_command('open_url', {'url': url})
+
+
+class HoogleCommand(TextCommand):
+    EXTERNAL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__),
+        'external'))
+
+    def run(self, edit, query=None):
+        view = self.view
+        sel = view.sel()
+        if len(sel) == 1:
+            sel = sel[0]
+            if sel.empty():
+                sel = view.substr(view.word(sel))
+            if query is None:
+                query = sel
+        else:
+            if query is not True:
+                return sublime.error_message('Multiple selections not supported')
+            sel = ''
+
+        if query is True:
+            view.window().show_input_panel('Hoogle query: ', sel,
+                self._query_hoogle, None, None)
+        else:
+            self._query_hoogle(query or sel)
+
+    def _query_hoogle(self, query, internal=True):
+        url = self.view.settings().get('hoogle_url',
+            'http://www.haskell.org/hoogle/')
+        url = add_query_args(url, {'hoogle': query})
+        results = self._call('hoogle', 'index', url)
+        if results is not None:
+            def on_select(index):
+                if index == -1:
+                    return
+
+                if internal:
+                    doc = self._call('hoogle', 'details', results[index]['url'])
+                    if doc is None:
+                        return
+                    output = win.get_output_panel('hoogle')
+                    output.set_read_only(False)
+                    edit = output.begin_edit()
+                    output.erase(edit, sublime.Region(0, output.size()))
+                    output.insert(edit, 0, doc)
+                    output.end_edit(edit)
+                    output.set_read_only(True)
+                    win.run_command('show_panel',
+                        {'panel': 'output.hoogle'})
+                else:
+                    win.run_command('open_url', {
+                        'url': results[index]['url']
+                    })
+
+            win = self.view.window()
+            win.show_quick_panel(
+                [[res['name'], res['loc'], res['url']] for res in results],
+                on_select
+            )
+
+    def _call(self, name, *args):
+        python = self.view.settings().get('hoogle_python', 'python')
+        args = (python, '-u', os.path.join(self.EXTERNAL_PATH, name + '.py')) + args
+        proc = Popen(args, stdout=PIPE, stderr=PIPE)
+        # sublime.set_timeout(lambda: proc.kill(), 5000)
+        out, err = proc.communicate()
+        if proc.wait() != 0:
+            print err
+            sublime.error_message('Failed querying Hoogle')
+            return None
+        return pickle.loads(out)

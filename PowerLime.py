@@ -799,5 +799,4 @@ class QueryUrlCommand(TextCommand):
             url = urlunsplit(SplitResult(**url))
         else:
             url = text
-        print 'open', url
         self.view.window().run_command('open_url', {'url': url})

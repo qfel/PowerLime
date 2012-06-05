@@ -184,11 +184,14 @@ class SortPythonImportsCommand(TextCommand):
 
         sel = view.sel()
         if len(sel) == 1 and sel[0].empty():
-            sel = view.find_all(r'(?:(?:^(?:import|from)\s.*)\n)+', 0)
+            sel = view.find_all(r'^(?:(?:import|from)\s[^\\\n]*(\\\n[^\\\n]*)*\n)+', 0)
 
         for region in sel:
             region = view.line(region)
-            view.replace(edit, region, formatter.format(view.substr(region)))
+            text = view.substr(region)
+            new_text = formatter.format(text)
+            if text != new_text:
+                view.replace(edit, region, new_text)
 
 
 class RunCommand(object):

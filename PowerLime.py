@@ -16,7 +16,7 @@ from inspect import getargspec
 from itertools import groupby
 from operator import ge, le
 from string import Template
-from subprocess import PIPE, Popen
+from subprocess import CalledProcessError, PIPE, Popen
 from types import BuiltinMethodType, MethodType
 from urllib import urlencode
 from urlparse import SplitResult, parse_qs, urlsplit, urlunsplit
@@ -30,6 +30,68 @@ def syntax_name(view):
     syntax = os.path.basename(view.settings().get('syntax'))
     syntax = os.path.splitext(syntax)[0]
     return syntax.lower()
+
+
+class ExternalPythonCaller(object):
+    def __init__(self, python='python', timeout=None):
+        self._popen_args = {
+            'args': [
+                python,
+                '-u',
+                os.path.abspath(os.path.join(os.path.dirname(__file__),
+                    'external', 'main.py')),
+                None
+            ],
+            'stdin': PIPE,
+            'stdout': PIPE,
+            'stderr': PIPE
+        }
+        self.timeout = timeout
+        self._proc = None
+
+    def __call__(self, _path, *args, **kwargs):
+        proc = self._proc
+        if proc is not None:
+            self._try_kill(proc)
+
+        self._popen_args['args'][-1] = _path
+        self._proc = Popen(**self._popen_args)
+        if self.timeout is not None:
+            sublime.set_timeout(
+                partial(self._try_kill, self._proc),
+                self.timeout
+            )
+
+        argp = args, kwargs
+        callback = kwargs.pop('_callback', None)
+        if callback:
+            Thread(
+                target=partial(self._async_communicate, self._proc, argp)
+            ).start()
+        else:
+            return self._communicate(self._proc, argp)
+
+    @staticmethod
+    def _try_kill(proc):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    def _async_communicate(self, proc, argp):
+        callback(self._communicate(self._proc, argp))
+
+    def _communicate(self, proc, argp):
+        out, err = proc.communicate(pickle.dumps(argp))
+        print repr(out)
+
+        ret = proc.wait()
+        self._proc = None
+        if ret != 0:
+            print 'Subprocess exited with error {0}:\n{1}'.format(ret, err)
+            raise CalledProcessError(ret, 'python')
+        else:
+            return pickle.loads(out)
 
 
 class PythonImportFormatter(object):
@@ -812,8 +874,7 @@ class QueryUrlCommand(TextCommand):
 
 
 class HoogleCommand(TextCommand):
-    EXTERNAL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__),
-        'external'))
+    hoogle = ExternalPythonCaller(timeout=5000)
 
     def run(self, edit, query=None):
         view = self.view
@@ -821,7 +882,8 @@ class HoogleCommand(TextCommand):
         if len(sel) == 1:
             sel = sel[0]
             if sel.empty():
-                sel = view.substr(view.word(sel))
+                sel = view.word(sel)
+            sel = view.substr(sel)
             if query is None:
                 query = sel
         else:
@@ -839,14 +901,15 @@ class HoogleCommand(TextCommand):
         url = self.view.settings().get('hoogle_url',
             'http://www.haskell.org/hoogle/')
         url = add_query_args(url, {'hoogle': query})
-        results = self._call('hoogle', 'index', url)
+        results = self.hoogle('hoogle.query_index', url)
         if results is not None:
             def on_select(index):
                 if index == -1:
                     return
 
                 if internal:
-                    doc = self._call('hoogle', 'details', results[index]['url'])
+                    doc = self.hoogle('hoogle.query_details',
+                        results[index]['url'])
                     if doc is None:
                         return
                     output = win.get_output_panel('hoogle')
@@ -868,15 +931,3 @@ class HoogleCommand(TextCommand):
                 [[res['name'], res['loc'], res['url']] for res in results],
                 on_select
             )
-
-    def _call(self, name, *args):
-        python = self.view.settings().get('hoogle_python', 'python')
-        args = (python, '-u', os.path.join(self.EXTERNAL_PATH, name + '.py')) + args
-        proc = Popen(args, stdout=PIPE, stderr=PIPE)
-        # sublime.set_timeout(lambda: proc.kill(), 5000)
-        out, err = proc.communicate()
-        if proc.wait() != 0:
-            print err
-            sublime.error_message('Failed querying Hoogle')
-            return None
-        return pickle.loads(out)

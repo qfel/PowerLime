@@ -21,7 +21,6 @@ class SelectionCommand(TextCommand):
     def run(self, edit, **kwargs):
         settings = self.view.settings()
         sel_auto_select = settings.get('sel_auto_select', True)
-        sel_auto_query = settings.get('sel_auto_query', True)
         sel_always_query = settings.get('sel_always_query', False)
 
         sel = self.view.sel()
@@ -34,10 +33,9 @@ class SelectionCommand(TextCommand):
                 sel = self.view.substr(self.view.word(sel))
                 bad_chars = settings.get('word_separators') + whitespace
                 if set(sel) <= set(bad_chars):
-                    if sel_auto_query:
-                        return self.query_input(sel, kwargs)
-                    elif not sel_always_query:
-                        return sublime.error_message('Nothing to autoselect')
+                    return self.query_input(sel, kwargs)
+            else:
+                return self.query_input('', kwargs)
         else:
             sel = self.view.substr(sel)
 
@@ -81,10 +79,10 @@ class PyDocHelpCommand(SelectionCommand):
             (sym, typ)
             for sym, typ
             in self.get_index().iteritems()
-            if text in sym
+            if text in sym.split('.')
         ]
         if not index:
-            index = list(self.get_index().iteritems())
+            return self.show_doc(text)
 
         if len(index) > 1:
             def on_select(i):

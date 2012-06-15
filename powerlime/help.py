@@ -98,7 +98,7 @@ class PyDocHelpCommand(SelectionCommand):
             self.view.window().show_quick_panel(items, on_select,
                 sublime.MONOSPACE_FONT)
         else:
-            self.show_doc(next(iter(index)))
+            self.show_doc(index[0][0])
 
     def get_index(self):
         try:

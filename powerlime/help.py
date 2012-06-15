@@ -44,12 +44,16 @@ class SelectionCommand(TextCommand):
         else:
             self.handle(sel, **kwargs)
 
-    def query_input(self, text, kwargs={}):
+    def query_input(self, text, kwargs={}, select=(None, None)):
         view = self.view.window().show_input_panel(self.PROMPT + ': ', text,
             partial(self.handle, **kwargs), None, None)
-        sel = view.sel()
-        sel.clear()
-        sel.add(sublime.Region(0, len(text)))
+        if select:
+            sel = view.sel()
+            sel.clear()
+            sel.add(sublime.Region(
+                0 if select[0] is None else select[0],
+                len(text) if select[1] is None else select[1]
+            ))
 
 
 class PyDocHelpCommand(SelectionCommand):
@@ -70,7 +74,9 @@ class PyDocHelpCommand(SelectionCommand):
 
     def handle(self, text):
         if text.startswith('?'):
-            return self.show_doc(text[1:].strip())
+            if not self.show_doc(text[1:].strip()):
+                sublime.error_message('Not found')
+            return
 
         self.symbol_format = self.view.settings().get('pydoc_symbol_format',
             '{0} - {1}')
@@ -82,27 +88,29 @@ class PyDocHelpCommand(SelectionCommand):
             if text in sym.split('.')
         ]
         if not index:
-            return self.show_doc(text)
+            if self.show_doc(text):
+                return
+            index = self.get_index().items()
+        elif len(index) == 1 and index[0][0] == text and \
+                self.show_doc(index[0][0]):
+            return
 
-        if len(index) > 1 or index[0][0] != text:
-            def on_select(i):
-                if i == len(index):
-                    self.query_input(text)
-                elif i != -1:
-                    self.show_doc(index[i][0])
+        def on_select(i):
+            if i == len(index):
+                self.query_input('? ' + text, select=(2, None))
+            elif i != -1:
+                self.show_doc(index[i][0])
 
-            def sym_key((sym, typ)):
-                return sym.count('.'), sym, typ
+        def sym_key((sym, typ)):
+            return sym.count('.'), sym, typ
 
-            items = []
-            index.sort(key=sym_key)
-            for sym, typ in index:
-                items.append(self.get_symbol_item(sym, typ))
-            items.append('<other...>')
-            self.view.window().show_quick_panel(items, on_select,
-                sublime.MONOSPACE_FONT)
-        else:
-            self.show_doc(index[0][0])
+        items = []
+        index.sort(key=sym_key)
+        for sym, typ in index:
+            items.append(self.get_symbol_item(sym, typ))
+        items.append('<other...>')
+        self.view.window().show_quick_panel(items, on_select,
+            sublime.MONOSPACE_FONT)
 
     def get_index(self):
         try:
@@ -166,7 +174,10 @@ class PyDocHelpCommand(SelectionCommand):
     def show_doc(self, sym):
         doc = self.get_doc(sym)
         if doc is None:
-            return sublime.error_message('Internal help system error')
+            sublime.error_message('Internal help system error')
+            return False
+        if doc.startswith('no Python documentation found for '):
+            return False
 
         win = sublime.active_window()
         output = win.new_file()
@@ -188,6 +199,8 @@ class PyDocHelpCommand(SelectionCommand):
         settings.set('line_numbers', False)
         settings.set('spell_check', False)
         settings.set('gutter', False)
+
+        return True
 
     def get_doc(self, sym):
         try:

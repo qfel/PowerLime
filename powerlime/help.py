@@ -44,7 +44,7 @@ class SelectionCommand(TextCommand):
         else:
             self.handle(sel, **kwargs)
 
-    def query_input(self, text, kwargs):
+    def query_input(self, text, kwargs={}):
         view = self.view.window().show_input_panel(self.PROMPT + ': ', text,
             partial(self.handle, **kwargs), None, None)
         sel = view.sel()
@@ -84,9 +84,11 @@ class PyDocHelpCommand(SelectionCommand):
         if not index:
             return self.show_doc(text)
 
-        if len(index) > 1:
+        if len(index) > 1 or index[0][0] != text:
             def on_select(i):
-                if i != -1:
+                if i == len(index):
+                    self.query_input(text)
+                elif i != -1:
                     self.show_doc(index[i][0])
 
             def sym_key((sym, typ)):
@@ -96,6 +98,7 @@ class PyDocHelpCommand(SelectionCommand):
             index.sort(key=sym_key)
             for sym, typ in index:
                 items.append(self.get_symbol_item(sym, typ))
+            items.append('<other...>')
             self.view.window().show_quick_panel(items, on_select,
                 sublime.MONOSPACE_FONT)
         else:

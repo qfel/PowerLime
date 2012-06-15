@@ -71,6 +71,9 @@ class PyDocHelpCommand(SelectionCommand):
     parseindex = ExternalPythonCaller()
 
     def handle(self, text):
+        if text.startswith('?'):
+            return self.show_doc(text[1:].strip())
+
         self.symbol_format = self.view.settings().get('pydoc_symbol_format',
             '{0} - {1}')
 

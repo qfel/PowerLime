@@ -64,10 +64,9 @@ class PyDocHelpCommand(SelectionCommand):
     TYPES = {
         'att': ('attribute', r'\(.* attribute\)$'),
         'met': ('method', r'\(.* method\)$'),
-        'mod': ('module', r'\(module .*\)$'),
+        'mod': ('module', r'\(module\)$'),
         'cls': ('class', r'\((?:class in .*|built-in class)\)$'),
         'fun': ('function', r'\(in module .*\)$'),
-        '?':   ('???', r'x^')
     }
 
     parseindex = ExternalPythonCaller()
@@ -145,6 +144,7 @@ class PyDocHelpCommand(SelectionCommand):
         return index
 
     def gen_index(self, html_path):
+        MOD_PREFIX = 'module-'
         index = {}
         for href, name in self.parseindex('parseindex', html_path):
             sym = href.split('#', 1)[1]
@@ -152,6 +152,8 @@ class PyDocHelpCommand(SelectionCommand):
                 continue
             for typ, (_, regex) in self.TYPES.iteritems():
                 if re.search(regex, name):
+                    if typ == 'mod' and sym.startswith(MOD_PREFIX):
+                        sym = sym[len(MOD_PREFIX):]
                     index[sym] = typ
         return index
 

@@ -3,6 +3,7 @@ from powerlime.misc import *
 from powerlime.format.python import *
 from powerlime.run_command import *
 
+
 class ReloadPowerLimeCommand(ApplicationCommand):
     DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 

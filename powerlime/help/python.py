@@ -4,56 +4,10 @@ import re
 
 import sublime
 
-from functools import partial
-from string import whitespace
 from subprocess import PIPE, Popen
-from urllib import urlencode
-from urlparse import SplitResult, parse_qs, urlsplit, urlunsplit
 
-from sublime_plugin import TextCommand
-
+from powerlime.help.base import SelectionCommand
 from powerlime.util import ExternalPythonCaller
-
-
-class SelectionCommand(TextCommand):
-    PROMPT = 'selection'
-
-    def run(self, edit, **kwargs):
-        settings = self.view.settings()
-        sel_auto_select = settings.get('sel_auto_select', True)
-        sel_always_query = settings.get('sel_always_query', False)
-
-        sel = self.view.sel()
-        if len(sel) != 1:
-            return sublime.error_message('Multiple selections not supported')
-
-        sel = sel[0]
-        if sel.empty():
-            if sel_auto_select:
-                sel = self.view.substr(self.view.word(sel))
-                bad_chars = settings.get('word_separators') + whitespace
-                if set(sel) <= set(bad_chars):
-                    return self.query_input(sel, kwargs)
-            else:
-                return self.query_input('', kwargs)
-        else:
-            sel = self.view.substr(sel)
-
-        if sel_always_query:
-            self.query_input(sel, kwargs)
-        else:
-            self.handle(sel, **kwargs)
-
-    def query_input(self, text, kwargs={}, select=(None, None)):
-        view = self.view.window().show_input_panel(self.PROMPT + ': ', text,
-            partial(self.handle, **kwargs), None, None)
-        if select:
-            sel = view.sel()
-            sel.clear()
-            sel.add(sublime.Region(
-                0 if select[0] is None else select[0],
-                len(text) if select[1] is None else select[1]
-            ))
 
 
 class PyDocHelpCommand(SelectionCommand):
@@ -213,52 +167,3 @@ class PyDocHelpCommand(SelectionCommand):
         if proc.wait() != 0:
             return None
         return output
-
-
-class HoogleCommand(SelectionCommand):
-    PROMPT = 'hoogle query'
-
-    hoogle = ExternalPythonCaller(timeout=5000)
-
-    @staticmethod
-    def add_query_args(url, args):
-        url = urlsplit(url)._asdict()
-        query = parse_qs(url['query'])
-        query.update(args)
-        url['query'] = urlencode(query)
-        return urlunsplit(SplitResult(**url))
-
-    def handle(self, query, internal=True):
-        url = self.view.settings().get('hoogle_url',
-            'http://www.haskell.org/hoogle/')
-        url = self.add_query_args(url, {'hoogle': query})
-        results = self.hoogle('hoogle.query_index', url)
-        if results is not None:
-            def on_select(index):
-                if index == -1:
-                    return
-
-                if internal:
-                    doc = self.hoogle('hoogle.query_details',
-                        results[index]['url'])
-                    if doc is None:
-                        return
-                    output = win.get_output_panel('hoogle')
-                    output.set_read_only(False)
-                    edit = output.begin_edit()
-                    output.erase(edit, sublime.Region(0, output.size()))
-                    output.insert(edit, 0, doc)
-                    output.end_edit(edit)
-                    output.set_read_only(True)
-                    win.run_command('show_panel',
-                        {'panel': 'output.hoogle'})
-                else:
-                    win.run_command('open_url', {
-                        'url': results[index]['url']
-                    })
-
-            win = self.view.window()
-            win.show_quick_panel(
-                [[res['name'], res['loc'], res['url']] for res in results],
-                on_select
-            )

@@ -1,4 +1,5 @@
-from powerlime.help import *
+from powerlime.help.python import *
+from powerlime.help.haskell import *
 from powerlime.misc import *
 from powerlime.format.python import *
 from powerlime.run_command import *

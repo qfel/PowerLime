@@ -1,10 +1,12 @@
 from __future__ import division
 
+import os.path
 import re
 
-import sublime
-
 from subprocess import PIPE, Popen
+
+from sublime import MONOSPACE_FONT, Region, active_window, error_message
+from sublime_plugin import EventListener, WindowCommand
 
 from powerlime.help.base import SelectionCommand
 from powerlime.util import ExternalPythonCaller
@@ -28,7 +30,7 @@ class PyDocHelpCommand(SelectionCommand):
     def handle(self, text):
         if text.startswith('?'):
             if not self.show_doc(text[1:].strip()):
-                sublime.error_message('Not found')
+                error_message('Not found')
             return
 
         self.symbol_format = self.view.settings().get('pydoc_symbol_format',
@@ -63,7 +65,7 @@ class PyDocHelpCommand(SelectionCommand):
             items.append(self.get_symbol_item(sym, typ))
         items.append('<other...>')
         self.view.window().show_quick_panel(items, on_select,
-            sublime.MONOSPACE_FONT)
+            MONOSPACE_FONT)
 
     def get_index(self):
         try:
@@ -130,16 +132,16 @@ class PyDocHelpCommand(SelectionCommand):
     def show_doc(self, sym):
         doc = self.get_doc(sym)
         if doc is None:
-            sublime.error_message('Internal help system error')
+            error_message('Internal help system error')
             return False
         if doc.startswith('no Python documentation found for '):
             return False
 
-        win = sublime.active_window()
+        win = active_window()
         output = win.new_file()
 
         edit = output.begin_edit()
-        output.erase(edit, sublime.Region(0, output.size()))
+        output.erase(edit, Region(0, output.size()))
         output.insert(edit, 0, doc)
         output.end_edit(edit)
 
@@ -148,7 +150,7 @@ class PyDocHelpCommand(SelectionCommand):
         output.set_read_only(True)
         sel = output.sel()
         sel.clear()
-        sel.add(sublime.Region(0))
+        sel.add(Region(0))
 
         settings = output.settings()
         settings.set('rulers', [])
@@ -167,3 +169,52 @@ class PyDocHelpCommand(SelectionCommand):
         if proc.wait() != 0:
             return None
         return output
+
+
+class GlobalFindSymbolCommand(SelectionCommand):
+    db = ExternalPythonCaller()
+
+    def handle(self, text):
+        text = text.replace('*', '%').replace('?', '_')
+        db = os.path.expandvars(self.view.settings().get('symbol_db_path',
+            '$HOME/.symbols.db'))
+        results = self.db('symdb.query_symbol_like', db, text)
+
+        if len(results) != 1:
+            def on_select(i):
+                if i != -1:
+                    self.goto(results[i])
+
+            self.view.window().show_quick_panel(map(self.format_result, results),
+                on_select)
+        else:
+            self.goto(results[0])
+
+    def goto(self, result):
+        GlobalFindSybolListener.view_pos = (result['row'], result['col'])
+        GlobalFindSybolListener.sel_view = True
+        sel_view = self.view.window().open_file(result['file'])
+        if not sel_view.is_loaded():
+            GlobalFindSybolListener.view_id = sel_view.id()
+
+    def format_result(self, result):
+        dir_name, file_name = os.path.split(result['file'])
+        return [
+            result['symbol'],
+            u'{0}:{1}'.format(file_name, result['row']),
+            dir_name
+        ]
+
+
+class GlobalFindSybolListener(EventListener):
+    view_id = None
+
+    def on_load(self, view):
+        if self.view_id is not True and view.id() != self.view_id:
+            return
+
+        sel = view.sel()
+        sel.clear()
+        sel.add(Region(view.text_point(*self.view_pos)))
+        self.view_id = None
+

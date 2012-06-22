@@ -3,21 +3,22 @@ import cPickle as pickle
 from importlib import import_module
 from sys import argv, stdin, stdout
 
+PICKLE_PROTOCOL = 2
+
 
 def main():
     if len(argv) != 2:
-        raise ValueError('Need exactly 1 argument (command path)')
-    if '.' not in argv[1]:
-        module = argv[1]
-        handler = 'main'
-    else:
-        module, handler = argv[1].rsplit('.', 1)
+        raise ValueError('Need exactly 1 argument (module)')
 
-    module = import_module(module)
-    handler = getattr(module, handler)
+    module = import_module(argv[1])
 
-    args, kwargs = pickle.load(stdin)
-    pickle.dump(handler(*args, **kwargs), stdout, 2)
+    while True:
+        cmd = pickle.load(stdin)
+        if isinstance(cmd, tuple):
+            handler = getattr(module, cmd[0])
+            pickle.dump(handler(*cmd[1], **cmd[2]), stdout, PICKLE_PROTOCOL)
+        else:
+            return
 
 if __name__ == '__main__':
     main()

@@ -1,12 +1,15 @@
 from __future__ import division
 
+import os
 import os.path
 import re
 
 from subprocess import PIPE, Popen
+from threading import Thread
 
-from sublime import MONOSPACE_FONT, Region, active_window, error_message
-from sublime_plugin import EventListener, WindowCommand
+from sublime import MONOSPACE_FONT, Region, active_window, error_message, \
+    load_settings, set_timeout, status_message
+from sublime_plugin import EventListener, TextCommand
 
 from powerlime.help.base import SelectionCommand
 from powerlime.util import ExternalPythonCaller
@@ -25,7 +28,7 @@ class PyDocHelpCommand(SelectionCommand):
         'fun': ('function', r'\(in module .*\)$'),
     }
 
-    parseindex = ExternalPythonCaller()
+    parseindex = ExternalPythonCaller('parseindex')
 
     def handle(self, text):
         if text.startswith('?'):
@@ -102,7 +105,7 @@ class PyDocHelpCommand(SelectionCommand):
     def gen_index(self, html_path):
         MOD_PREFIX = 'module-'
         index = {}
-        for href, name in self.parseindex('parseindex', html_path):
+        for href, name in self.parseindex.main(html_path):
             sym = href.split('#', 1)[1]
             if re.match(r'index-\d+$', sym):
                 continue
@@ -171,14 +174,20 @@ class PyDocHelpCommand(SelectionCommand):
         return output
 
 
+def get_symbol_db_path(settings):
+    return os.path.expandvars(settings.get('symbol_db_path',
+        '$HOME/.symbols.db'))
+
 class GlobalFindSymbolCommand(SelectionCommand):
-    db = ExternalPythonCaller()
+    symdb = ExternalPythonCaller('symdb')
 
     def handle(self, text):
-        text = text.replace('*', '%').replace('?', '_')
-        db = os.path.expandvars(self.view.settings().get('symbol_db_path',
-            '$HOME/.symbols.db'))
-        results = self.db('symdb.query_symbol_like', db, text)
+        db = get_symbol_db_path(self.view.settings())
+
+        with self.symdb as symdb:
+            results = symdb.query_symbol_like(db, text)
+            if not results:
+                results = symdb.query_symbol_like(db, '*')
 
         if len(results) != 1:
             def on_select(i):
@@ -191,11 +200,13 @@ class GlobalFindSymbolCommand(SelectionCommand):
             self.goto(results[0])
 
     def goto(self, result):
-        GlobalFindSybolListener.view_pos = (result['row'], result['col'])
-        GlobalFindSybolListener.sel_view = True
-        sel_view = self.view.window().open_file(result['file'])
-        if not sel_view.is_loaded():
-            GlobalFindSybolListener.view_id = sel_view.id()
+        view = self.view.window().open_file(result['file'])
+        pos = (result['row'], result['col'])
+        if view.is_loading():
+            GlobalFindSymbolListener.view_pos = pos
+            GlobalFindSymbolListener.view_id = view.id()
+        else:
+            GlobalFindSymbolListener.goto(view, pos)
 
     def format_result(self, result):
         dir_name, file_name = os.path.split(result['file'])
@@ -206,15 +217,50 @@ class GlobalFindSymbolCommand(SelectionCommand):
         ]
 
 
-class GlobalFindSybolListener(EventListener):
+class GlobalFindSymbolListener(EventListener):
     view_id = None
 
-    def on_load(self, view):
-        if self.view_id is not True and view.id() != self.view_id:
-            return
+    @classmethod
+    def on_load(cls, view):
+        settings = load_settings('Default.sublime-settings')
 
+        if cls.view_id is not True and view.id() != cls.view_id:
+            return
+        cls.goto(view, cls.view_pos)
+        cls.view_id = None
+
+    @staticmethod
+    def goto(view, pos):
         sel = view.sel()
         sel.clear()
-        sel.add(Region(view.text_point(*self.view_pos)))
-        self.view_id = None
+        sel.add(Region(view.text_point(*pos)))
+        view.show(sel, True)
 
+
+class BuildSymbolIndexCommand(TextCommand):
+    def run(self, edit, rebuild=False):
+        settings = self.view.settings()
+        symbol_roots = settings.get('symbol_roots')
+        if symbol_roots is None:
+            return
+        BuildSymbolIndexCommand.thread = Thread(
+            target=self.process_roots,
+            args=(symbol_roots, get_symbol_db_path(settings), rebuild)
+        ).start()
+
+    def process_roots(self, symbol_roots, db, rebuild):
+        if rebuild:
+            os.remove(db)
+        with ExternalPythonCaller('symdb') as symdb:
+            for symbol_root in symbol_roots:
+                print symbol_root
+                for root, dirs, files in os.walk(symbol_root):
+                    for file_name in files:
+                        if file_name.endswith('.py'):
+                            path = os.path.abspath(os.path.join(root, file_name))
+                            if symdb.process_file(db, path, rebuild):
+                                self.set_status('Indexed ' + path)
+        self.set_status('Done indexing')
+
+    def set_status(self, msg):
+        set_timeout(lambda: status_message(msg), 0)

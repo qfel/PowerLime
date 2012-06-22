@@ -2,70 +2,74 @@ import cPickle as pickle
 import os
 import os.path
 
-import sublime
+from subprocess import PIPE, Popen
 
-from functools import partial
-from subprocess import CalledProcessError, PIPE, Popen
-from threading import Thread
+PICKLE_PROTOCOL = 2
+
+
+class ExternalCallError(Exception):
+    pass
+
+
+class FunctionProxy(object):
+    def __init__(self, caller, fname):
+        self.caller = caller
+        self.fname = fname
+
+    def __call__(self, *args, **kwargs):
+        proc = self.caller.get_process()
+        try:
+            pickle.dump((self.fname, args, kwargs), proc.stdin, PICKLE_PROTOCOL)
+            return pickle.load(proc.stdout)
+        except (IOError, EOFError, pickle.UnpicklingError):
+            raise ExternalCallError(proc.stderr.read())
 
 
 class ExternalPythonCaller(object):
-    def __init__(self, python='python', timeout=None):
+    SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
+        'external'))
+
+    def __init__(self, module, python='python'):
         self.popen_args = {
             'args': [
                 python,
                 '-u',
-                os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
-                    'external', 'main.py')),
-                None
+                os.path.join(self.SCRIPTS_DIR, 'main.py'),
+                module
             ],
             'stdin': PIPE,
             'stdout': PIPE,
             'stderr': PIPE
         }
-        self.timeout = timeout
-        self.proc = None
+        self.proc = False
 
-    def __call__(self, _path, *args, **kwargs):
-        proc = self.proc
-        if proc is not None:
-            self.try_kill(proc)
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            raise AttributeError(name)
+        return FunctionProxy(self, name)
 
-        self.popen_args['args'][-1] = _path
-        self.proc = Popen(**self.popen_args)
-        if self.timeout is not None:
-            sublime.set_timeout(
-                partial(self.try_kill, self.proc),
-                self.timeout
-            )
+    def __enter__(self):
+        self.begin()
+        return self
 
-        argp = args, kwargs
-        callback = kwargs.pop('_callback', None)
-        if callback:
-            Thread(
-                target=self.async_communicate,
-                args=(self.proc, argp, callback)
-            ).start()
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.end()
+        return False
+
+    def get_process(self):
+        if self.proc is True:
+            self.proc = Popen(**self.popen_args)
+            return self.proc
+        elif self.proc is False:
+            return Popen(**self.popen_args)
         else:
-            return self.communicate(self.proc, argp)
+            return self.proc
 
-    @staticmethod
-    def try_kill(proc):
-        try:
-            proc.kill()
-        except OSError:
-            pass
+    def begin(self):
+        self.proc = True
 
-    def async_communicate(self, proc, argp, callback):
-        callback(self.communicate(self.proc, argp))
-
-    def communicate(self, proc, argp):
-        out, err = proc.communicate(pickle.dumps(argp))
-
-        ret = proc.wait()
-        self.proc = None
-        if ret != 0:
-            print 'Subprocess exited with error {0}:\n{1}'.format(ret, err)
-            raise CalledProcessError(ret, 'python')
-        else:
-            return pickle.loads(out)
+    def end(self):
+        if not isinstance(self.proc, bool):
+            pickle.dump(0, self.proc.stdin, PICKLE_PROTOCOL)
+            self.proc.wait()
+        self.proc = False

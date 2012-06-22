@@ -65,7 +65,7 @@ class SymbolDatabase(object):
             FROM symbols s, files f
             WHERE
                 s.file_id = f.rowid AND
-                s.symbol LIKE ?
+                s.symbol GLOB ?
             ORDER BY s.symbol, f.path, s.row
         ''', (pattern,))
         for row in self.cur:

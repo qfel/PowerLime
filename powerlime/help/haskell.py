@@ -13,7 +13,7 @@ from powerlime.util import ExternalPythonCaller
 class HoogleCommand(SelectionCommand):
     PROMPT = 'hoogle query'
 
-    hoogle = ExternalPythonCaller(timeout=5000)
+    hoogle = ExternalPythonCaller('hoogle')
 
     @staticmethod
     def add_query_args(url, args):
@@ -27,15 +27,14 @@ class HoogleCommand(SelectionCommand):
         url = self.view.settings().get('hoogle_url',
             'http://www.haskell.org/hoogle/')
         url = self.add_query_args(url, {'hoogle': query})
-        results = self.hoogle('hoogle.query_index', url)
+        results = self.hoogle.query_index(url)
         if results is not None:
             def on_select(index):
                 if index == -1:
                     return
 
                 if internal:
-                    doc = self.hoogle('hoogle.query_details',
-                        results[index]['url'])
+                    doc = self.hoogle.query_details(results[index]['url'])
                     if doc is None:
                         return
                     output = win.get_output_panel('hoogle')

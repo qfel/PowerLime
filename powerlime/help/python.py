@@ -4,6 +4,7 @@ import os
 import os.path
 import re
 
+from functools import partial
 from subprocess import PIPE, Popen
 from threading import Thread
 
@@ -12,7 +13,7 @@ from sublime import MONOSPACE_FONT, Region, active_window, error_message, \
 from sublime_plugin import EventListener, TextCommand
 
 from powerlime.help.base import SelectionCommand
-from powerlime.util import ExternalPythonCaller
+from powerlime.util import ExternalPythonCaller, async_worker
 
 
 class PyDocHelpCommand(SelectionCommand):
@@ -173,21 +174,27 @@ class PyDocHelpCommand(SelectionCommand):
             return None
         return output
 
+symdb = ExternalPythonCaller('symdb')
+
+
+def async_status_message(msg):
+    set_timeout(partial(status_message, msg), 0)
+
 
 def get_symbol_db_path(settings):
     return os.path.expandvars(settings.get('symbol_db_path',
         '$HOME/.symbols.db'))
 
-class GlobalFindSymbolCommand(SelectionCommand):
-    symdb = ExternalPythonCaller('symdb')
 
+class GlobalFindSymbolCommand(SelectionCommand):
     def handle(self, text):
         db = get_symbol_db_path(self.view.settings())
 
-        with self.symdb as symdb:
-            results = symdb.query_symbol_like(db, text)
+        with symdb:
+            symdb.set_db(db)
+            results = symdb.query_occurrences(text)
             if not results:
-                results = symdb.query_symbol_like(db, '*')
+                results = symdb.query_all()
 
         if len(results) != 1:
             def on_select(i):
@@ -210,8 +217,13 @@ class GlobalFindSymbolCommand(SelectionCommand):
 
     def format_result(self, result):
         dir_name, file_name = os.path.split(result['file'])
+        scope = result['scope']
+        if scope:
+            text = scope + '.' + result['symbol']
+        else:
+            text = result['symbol']
         return [
-            result['symbol'],
+            text,
             u'{0}:{1}'.format(file_name, result['row']),
             dir_name
         ]
@@ -220,14 +232,33 @@ class GlobalFindSymbolCommand(SelectionCommand):
 class GlobalFindSymbolListener(EventListener):
     view_id = None
 
+    @staticmethod
+    def index_view(settings, view):
+        def async():
+            with symdb:
+                symdb.set_db(get_symbol_db_path(settings))
+                if symdb.process_file(view.file_name()):
+                    async_status_message('Indexed ' + view.file_name())
+        async_worker.execute(async)
+
     @classmethod
     def on_load(cls, view):
-        settings = load_settings('Default.sublime-settings')
+        if view.file_name().endswith('.py'):
+            settings = load_settings('Preferences.sublime-settings')
+            if settings.get('symdb_parse_on_load'):
+                cls.index_view(settings, view)
 
         if cls.view_id is not True and view.id() != cls.view_id:
             return
+
         cls.goto(view, cls.view_pos)
         cls.view_id = None
+
+    def on_post_save(self, view):
+        if view.file_name().endswith('.py'):
+            settings = load_settings('Preferences.sublime-settings')
+            if settings.get('symdb_parse_on_save'):
+                self.index_view(settings, view)
 
     @staticmethod
     def goto(view, pos):
@@ -252,15 +283,12 @@ class BuildSymbolIndexCommand(TextCommand):
         if rebuild:
             os.remove(db)
         with ExternalPythonCaller('symdb') as symdb:
+            symdb.set_db(db)
             for symbol_root in symbol_roots:
-                print symbol_root
                 for root, dirs, files in os.walk(symbol_root):
                     for file_name in files:
                         if file_name.endswith('.py'):
                             path = os.path.abspath(os.path.join(root, file_name))
-                            if symdb.process_file(db, path, rebuild):
-                                self.set_status('Indexed ' + path)
-        self.set_status('Done indexing')
-
-    def set_status(self, msg):
-        set_timeout(lambda: status_message(msg), 0)
+                            if symdb.process_file(path, rebuild):
+                                async_status_message('Indexed ' + path)
+        async_status_message('Done indexing')

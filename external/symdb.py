@@ -43,7 +43,7 @@ class SymbolDatabase(object):
         ''', (path,))
         row = self.cur.fetchone()
         if row:
-            if row[0] < time:
+            if row[0] != time:
                 self.cur.execute('''
                     UPDATE files SET timestamp = ? WHERE path = ?
                 ''', (time, path))

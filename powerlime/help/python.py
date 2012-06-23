@@ -217,13 +217,11 @@ class GlobalFindSymbolCommand(SelectionCommand):
 
     def format_result(self, result):
         dir_name, file_name = os.path.split(result['file'])
-        scope = result['scope']
-        if scope:
-            text = scope + '.' + result['symbol']
-        else:
-            text = result['symbol']
         return [
-            text,
+            '.'.join(filter(
+                None,
+                (result['package'], result['scope'], result['symbol'])
+            )),
             u'{0}:{1}'.format(file_name, result['row']),
             dir_name
         ]
@@ -271,8 +269,10 @@ class GlobalFindSymbolListener(EventListener):
 class BuildSymbolIndexCommand(TextCommand):
     def run(self, edit, rebuild=False):
         settings = self.view.settings()
-        symbol_roots = settings.get('symbol_roots')
-        if symbol_roots is None:
+        symbol_roots = settings.get('symbol_roots', [])
+        if settings.get('symbols_include_project', True):
+            symbol_roots += self.view.window().folders()
+        if not symbol_roots:
             return
         BuildSymbolIndexCommand.thread = Thread(
             target=self.process_roots,

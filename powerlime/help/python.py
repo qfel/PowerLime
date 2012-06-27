@@ -182,8 +182,11 @@ def async_status_message(msg):
 
 
 def get_symbol_db_path(settings):
-    return os.path.expandvars(settings.get('symbol_db_path',
-        '$HOME/.symbols.db'))
+    paths = settings.get('symbol_db_path', '$HOME/.symbols.db')
+    if isinstance(paths, basestring):
+        return [os.path.expandvars(paths)]
+    else:
+        return map(os.path.expandvars, paths)
 
 
 class GlobalFindSymbolCommand(SelectionCommand):

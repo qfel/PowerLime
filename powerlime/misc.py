@@ -4,11 +4,10 @@ import os
 import os.path
 import re
 
-from sublime import Region
-
 from operator import ge, le
 from string import Template
 
+from sublime import Region, set_clipboard
 from sublime_plugin import TextCommand, WindowCommand
 
 
@@ -196,3 +195,14 @@ class MoveAllToGroupCommand(WindowCommand):
 
     def is_enabled(self):
         return self.window.active_view() is not None
+
+
+class CopyCurrentPath(TextCommand):
+    def run(self, edit, relative=True):
+        path = self.view.file_name()
+        if relative:
+            for folder in self.view.window().folders():
+                if path.startswith(folder + os.sep):
+                    path = path[len(folder) + 1:]
+                    break
+        set_clipboard(path)

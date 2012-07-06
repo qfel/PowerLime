@@ -46,5 +46,9 @@
     {
         "caption": "C/C++: Sort Includes",
         "command": "sort_includes"
+    },
+    {
+        "caption": "Copy Current File Path",
+        "command": "copy_current_path"
     }
 ]

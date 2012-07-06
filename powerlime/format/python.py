@@ -157,7 +157,7 @@ class SortPythonImportsCommand(TextCommand):
 
         sel = view.sel()
         if len(sel) == 1 and sel[0].empty():
-            sel = view.find_all(r'^(?:(?:import|from)\s[^\\\n]*(\\\n[^\\\n]*)*\n)+', 0)
+            sel = view.find_all(r'^(?:(?:import|from)\s[^\\\n]*(\\\n[^\\\n]*)*\n)+')
 
         for region in sel:
             region = view.line(region)

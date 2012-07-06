@@ -1,6 +1,6 @@
 [
     {
-        "caption": "Sort Python Imports",
+        "caption": "Python: Sort Imports",
         "command": "sort_python_imports"
     },
     {
@@ -14,14 +14,6 @@
     {
         "caption": "Run Application Command",
         "command": "run_application_command"
-    },
-    {
-        "caption": "Mark Changes",
-        "command": "mark_changes"
-    },
-    {
-        "caption": "Unmark Changes",
-        "command": "unmark_changes"
     },
     {
         "caption": "Group: Same Extension + Others",
@@ -50,5 +42,9 @@
     {
         "caption": "Hoogle Search",
         "command": "hoogle"
+    },
+    {
+        "caption": "C/C++: Sort Includes",
+        "command": "sort_includes"
     }
 ]

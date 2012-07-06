@@ -4,105 +4,12 @@ import os
 import os.path
 import re
 
-from sublime import HIDDEN, Region
+from sublime import Region
 
-from difflib import SequenceMatcher
 from operator import ge, le
 from string import Template
 
-from sublime_plugin import EventListener, TextCommand, WindowCommand
-
-
-class ChangesCommandBase(object):
-    INSERTS_KEY = 'mark_diff_ins'
-    REPLACES_KEY = 'mark_diff_repl'
-
-    REGION_KEYS = (INSERTS_KEY, REPLACES_KEY)
-
-    def _erase_regions(self, view):
-        for key in self.REGION_KEYS:
-            view.erase_regions(key)
-
-
-class MarkChangesCommand(ChangesCommandBase, TextCommand):
-    ''' Mark changes between current text and file saved on disk '''
-
-    class UserString(str):
-        pass
-
-    class UserUnicode(str):
-        pass
-
-    @classmethod
-    def _split_lines(cls, src):
-        lines = []
-        sep = '\n'
-        i = 0
-        if isinstance(src, unicode):
-            StrClass = cls.UserUnicode
-        else:
-            StrClass = cls.UserString
-        while True:
-            j = src.find(sep, i)
-            if j == -1:
-                j = len(sep)
-            line = StrClass(src[i:j])
-            line.offset = i
-            lines.append(line)
-            if j == len(sep):
-                break
-            i = j + len(sep)
-        return lines
-
-    def run(self, edit):
-        view = self.view
-        with open(view.file_name(), 'rb') as f:
-            src = self._split_lines(f.read())
-        dst = self._split_lines(view.substr(Region(0, view.size())))
-        matcher = SequenceMatcher(str.isspace, src, dst)
-
-        inserts = []
-        replaces = []
-        for op, i1, i2, j1, j2 in matcher.get_opcodes():
-            if op == 'insert':
-                regions = inserts
-            elif op == 'replace':
-                regions = replaces
-            else:
-                continue
-            for j in xrange(j1, j2):
-                regions.append(Region(dst[j].offset,
-                    dst[j].offset + len(dst[j])))
-
-        self._erase_regions(self.view)
-        view.add_regions(self.INSERTS_KEY, inserts, 'markup.inserted.diff',
-            'dot', HIDDEN)
-        view.add_regions(self.REPLACES_KEY, replaces, 'markup.deleted.diff',
-            'dot', HIDDEN)
-
-    def is_enabled(self):
-        return self.view.file_name() is not None and self.view.is_dirty()
-
-
-class UnmarkChangesCommand(ChangesCommandBase, TextCommand):
-    ''' Unmark all marked changes '''
-
-    def run(self, edit):
-        self._erase_regions(self.view)
-
-    def is_enabled(self):
-        for key in self.REGION_KEYS:
-            if self.view.get_regions(key):
-                return True
-        return False
-
-
-class AutomaticUnmarker(ChangesCommandBase, EventListener):
-    def on_modified(self, view):
-        self._erase_regions(view)
-
-    def on_post_save(self, view):
-        self._erase_regions(view)
+from sublime_plugin import TextCommand, WindowCommand
 
 
 class ChangeLayoutCommand(WindowCommand):

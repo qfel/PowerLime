@@ -13,10 +13,11 @@ from sublime import MONOSPACE_FONT, Region, active_window, error_message, \
 from sublime_plugin import EventListener, TextCommand
 
 from powerlime.help.base import SelectionCommand
-from powerlime.util import ExternalPythonCaller, async_worker
+from powerlime.util import ExternalPythonCaller, PythonSpecificCommand, \
+    async_worker
 
 
-class PyDocHelpCommand(SelectionCommand):
+class PyDocHelpCommand(SelectionCommand, PythonSpecificCommand):
     ''' Display internal Python help index '''
 
     PROMPT = 'symbol'
@@ -189,7 +190,7 @@ def get_symbol_db_path(settings):
         return map(os.path.expandvars, paths)
 
 
-class GlobalFindSymbolCommand(SelectionCommand):
+class GlobalFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
     def handle(self, text):
         db = get_symbol_db_path(self.view.settings())
 
@@ -269,7 +270,7 @@ class GlobalFindSymbolListener(EventListener):
         view.show(sel, True)
 
 
-class BuildSymbolIndexCommand(TextCommand):
+class BuildSymbolIndexCommand(PythonSpecificCommand):
     def run(self, edit, rebuild=False):
         settings = self.view.settings()
         symbol_roots = settings.get('symbol_roots', [])

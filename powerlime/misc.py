@@ -10,6 +10,8 @@ from string import Template
 from sublime import Region, set_clipboard
 from sublime_plugin import TextCommand, WindowCommand
 
+from powerlime.util import CxxSpecificCommand
+
 
 class ChangeLayoutCommand(WindowCommand):
     ''' Set layout to custom numbers of rows per column '''
@@ -197,7 +199,7 @@ class MoveAllToGroupCommand(WindowCommand):
         return self.window.active_view() is not None
 
 
-class CopyCurrentPath(TextCommand):
+class CopyCurrentPath(CxxSpecificCommand):
     def run(self, edit, relative=True):
         path = self.view.file_name()
         if relative:
@@ -205,4 +207,5 @@ class CopyCurrentPath(TextCommand):
                 if path.startswith(folder + os.sep):
                     path = path[len(folder) + 1:]
                     break
+        path = '#inlcude "{0}.h"'.format(os.path.splitext(path)[0])
         set_clipboard(path)

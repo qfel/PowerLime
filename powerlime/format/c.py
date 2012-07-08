@@ -1,7 +1,7 @@
-from sublime_plugin import TextCommand
+from powerlime.util import CxxSpecificCommand
 
 
-class SortIncludesCommand(TextCommand):
+class SortIncludesCommand(CxxSpecificCommand):
     def run(self, edit):
         def set_sel(region_list):
             sel.clear()

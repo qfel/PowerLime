@@ -6,6 +6,9 @@ from Queue import Empty, Queue
 from subprocess import PIPE, Popen
 from threading import Lock, Thread
 
+from sublime import View
+from sublime_plugin import TextCommand
+
 PICKLE_PROTOCOL = 2
 
 
@@ -109,3 +112,31 @@ class WorkerThread(object):
                 self.thread.start()
 
 async_worker = WorkerThread()
+
+
+def get_syntax_name(view_or_settings):
+    if isinstance(view_or_settings, View):
+        settings = view_or_settings.settings()
+    else:
+        settings = view_or_settings
+
+    return os.path.splitext(os.path.basename(settings.get('syntax')))[0].lower()
+
+
+def SyntaxSpecificCommand(*syntax_names):
+    def is_enabled(self, **kwargs):
+        return get_syntax_name(self.view) in syntax_names
+
+    return type(
+        '{0}SpecificCommand'.format(
+            ''.join(syntax.capitalize() for syntax in syntax_names)
+        ),
+        (TextCommand, ),
+        {
+            'is_enabled': is_enabled
+        }
+    )
+
+CxxSpecificCommand = SyntaxSpecificCommand('c', 'c++')
+PythonSpecificCommand = SyntaxSpecificCommand('python')
+HaskellSpecificCommand = SyntaxSpecificCommand('haskell')

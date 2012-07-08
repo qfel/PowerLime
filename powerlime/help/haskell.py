@@ -7,10 +7,10 @@ from urllib import urlencode
 from urlparse import SplitResult, parse_qs, urlsplit, urlunsplit
 
 from powerlime.help.base import SelectionCommand
-from powerlime.util import ExternalPythonCaller
+from powerlime.util import ExternalPythonCaller, HaskellSpecificCommand
 
 
-class HoogleCommand(SelectionCommand):
+class HoogleCommand(SelectionCommand, HaskellSpecificCommand):
     PROMPT = 'hoogle query'
 
     hoogle = ExternalPythonCaller('hoogle')

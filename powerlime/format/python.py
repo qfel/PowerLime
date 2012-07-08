@@ -4,6 +4,8 @@ from itertools import groupby
 
 from sublime_plugin import TextCommand
 
+from powerlime.util import PythonSpecificCommand
+
 
 class PythonImportFormatter(object):
     ''' Sorts Python imports '''
@@ -142,7 +144,7 @@ class PythonImportFormatter(object):
         return u'\n'.join(self._output)
 
 
-class SortPythonImportsCommand(TextCommand):
+class SortPythonImportsCommand(PythonSpecificCommand):
     ''' Sort Python imports '''
 
     def run(self, edit):

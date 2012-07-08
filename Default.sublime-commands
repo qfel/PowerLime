@@ -40,7 +40,7 @@
         }
     },
     {
-        "caption": "Hoogle Search",
+        "caption": "Haskell: Hoogle Search",
         "command": "hoogle"
     },
     {
@@ -48,7 +48,7 @@
         "command": "sort_includes"
     },
     {
-        "caption": "Copy Current File Path",
+        "caption": "C/C++: Copy Current File Path",
         "command": "copy_current_path"
     }
 ]

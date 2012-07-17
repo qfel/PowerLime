@@ -50,5 +50,12 @@
     {
         "caption": "C/C++: Copy Current File Path",
         "command": "copy_current_path"
+    },
+    {
+        "caption": "Goto Parent Block",
+        "command": "goto_block",
+        "args": {
+            "mode": "parent"
+        }
     }
 ]

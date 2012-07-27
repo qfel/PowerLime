@@ -7,7 +7,7 @@ import re
 from operator import ge, le
 from string import Template
 
-from sublime import Region, set_clipboard
+from sublime import Region, TRANSIENT, set_clipboard
 from sublime_plugin import TextCommand, WindowCommand
 
 from powerlime.util import CxxSpecificCommand
@@ -209,6 +209,79 @@ class CopyCurrentPath(CxxSpecificCommand):
                     break
         path = '#inlcude "{0}.h"'.format(os.path.splitext(path)[0])
         set_clipboard(path)
+
+
+class OpenFileCommand(CxxSpecificCommand):
+    USER_INCLUDE, SYS_INCLUDE = xrange(2)
+
+    def run(self, edit, transient=False):
+        for sel in self.view.sel():
+            if sel.empty():
+                line = self.view.line(sel.a)
+                file_names = self.extract_file_names(
+                    self.view.substr(line),
+                    sel.a - line.a
+                )
+            else:
+                file_names = [(self.OTHER_MATCH, self.view.substr(sel))]
+            self.open_file(file_names, transient)
+
+    def open_file(self, file_names, transient):
+        if transient:
+            flags = TRANSIENT
+        else:
+            flags = 0
+
+        for type, file_name in file_names:
+            if type == self.USER_INCLUDE:
+                rel_file_name = self.view.file_name()
+                if rel_file_name is not None:
+                    rel_file_name = os.path.join(
+                        os.path.dirname(rel_file_name),
+                        file_name
+                    )
+                    if os.path.isfile(rel_file_name):
+                        self.view.window().open_file(rel_file_name, flags)
+                        break
+            if os.path.isfile(file_name):
+                self.view.open_file(file_name, flags)
+                break
+            for folder in self.view.window().folders():
+                rel_file_name = os.path.join(folder, file_name)
+                if os.path.isfile(rel_file_name):
+                    self.view.open_file(rel_file_name, flags)
+                    break
+
+    def extract_file_names(self, line, pos):
+        def find_range(begin, end):
+            try:
+                i = line.rindex(begin, 0, pos)
+                j = line.index(end, pos)
+            except ValueError:
+                return None
+            else:
+                return i + 1, j
+
+        file_names = []
+
+        tup = find_range('"', '"')
+        if tup is not None:
+            file_names.append((
+                tup[1] - tup[0],
+                self.USER_INCLUDE,
+                line[slice(*tup)]
+            ))
+
+        tup = find_range('<', '>')
+        if tup is not None:
+            file_names.append((
+                tup[1] - tup[0],
+                self.SYS_INCLUDE,
+                line[slice(*tup)]
+            ))
+
+        file_names.sort()
+        return [tup[1:] for tup in file_names]
 
 
 class GotoBlockCommand(TextCommand):

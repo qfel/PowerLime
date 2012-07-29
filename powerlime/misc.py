@@ -379,10 +379,12 @@ class DeletePartCommand(TextCommand):
                 if char.isspace() or char in word_separators:
                     break
                 if char.isupper():
-                    if char_class == -1:
+                    if forward and char_class == -1:
                         break
                     char_class = 1
                 elif char.islower():
+                    if not forward and char_class == 1:
+                        break
                     char_class = -1
                 elif char.isdigit():
                     char_class = 0

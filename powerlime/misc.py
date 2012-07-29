@@ -54,7 +54,7 @@ class SwitchViewInGroupCommand(WindowCommand):
 
 
 class SwitchGroupCommand(WindowCommand):
-    ''' Switch groups '''
+    ''' Switch between groups '''
 
     def run(self, delta):
         win = self.window
@@ -163,6 +163,8 @@ class GroupViewsCommand(WindowCommand):
 
 
 class MoveToVisibleCommand(TextCommand):
+    ''' Moves cursor to specified visible part of displayed file '''
+
     def run(self, edit, position):
         def set_sel(pos):
             sel = view.sel()
@@ -183,13 +185,15 @@ class MoveToVisibleCommand(TextCommand):
 
 
 class MoveAllToGroupCommand(WindowCommand):
-    def run(self, group):
+    ''' Moves all views in current group to adjacent group '''
+
+    def run(self, forward):
         win = self.window
 
         active_group = win.active_group()
-        if group == 'next':
+        if forward:
             group = (active_group + 1) % win.num_groups()
-        elif group == 'prev':
+        else:
             group = (active_group - 1) % win.num_groups()
 
         for view in reversed(win.views_in_group(active_group)):
@@ -200,6 +204,8 @@ class MoveAllToGroupCommand(WindowCommand):
 
 
 class CopyCurrentPath(CxxSpecificCommand):
+    ''' Copies path of currently opened file to clipboard '''
+
     def run(self, edit, relative=True):
         path = self.view.file_name()
         if relative:
@@ -212,6 +218,8 @@ class CopyCurrentPath(CxxSpecificCommand):
 
 
 class OpenFileCommand(CxxSpecificCommand):
+    ''' Opens a file under cursor '''
+
     USER_INCLUDE, SYS_INCLUDE = xrange(2)
 
     def run(self, edit, transient=False):
@@ -285,6 +293,9 @@ class OpenFileCommand(CxxSpecificCommand):
 
 
 class GotoBlockCommand(TextCommand):
+    ''' Moves cursor to text with specified indentation with respect to its
+    current position '''
+
     def run(self, edit, mode):
         view = self.view
         sel = view.sel()
@@ -341,3 +352,45 @@ class GotoBlockCommand(TextCommand):
             return None
         else:
             return line
+
+
+class DeletePartCommand(TextCommand):
+    # Taken from default Sublime settings
+    WORD_SEPARATORS = "./\\()\"'-:,.;<>~!@#$%^&*|+=[]{}`~?"
+
+    def run(self, edit, forward=True):
+        view = self.view
+        word_separators = view.settings().get('word_separators',
+            self.WORD_SEPARATORS)
+        word_separators = frozenset(word_separators)
+
+        for sel in view.sel():
+            if not sel.empty():
+                continue
+
+            line_sel = view.line(sel)
+            if forward:
+                part = view.substr(Region(sel.a, line_sel.b))
+            else:
+                part = reversed(view.substr(Region(line_sel.a, sel.a)))
+
+            char_class = 0
+            for index, char in enumerate(part):
+                if char.isspace() or char in word_separators:
+                    break
+                if char.isupper():
+                    if char_class == -1:
+                        break
+                    char_class = 1
+                elif char.islower():
+                    char_class = -1
+                elif char.isdigit():
+                    char_class = 0
+                else:
+                    break
+
+            view.erase(edit,
+                Region(sel.a, sel.a + index)
+                if forward else
+                Region(sel.a - index, sel.a)
+            )

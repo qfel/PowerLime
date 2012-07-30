@@ -6,7 +6,7 @@ from Queue import Empty, Queue
 from subprocess import PIPE, Popen
 from threading import Lock, Thread
 
-from sublime import View
+from sublime import View, load_settings
 from sublime_plugin import TextCommand
 
 PICKLE_PROTOCOL = 2
@@ -137,6 +137,7 @@ def SyntaxSpecificCommand(*syntax_names):
         }
     )
 
-CxxSpecificCommand = SyntaxSpecificCommand('c', 'c++')
+CxxSpecificCommand = SyntaxSpecificCommand('c', 'c++', 'objective-c',
+    'objective-c++')
 PythonSpecificCommand = SyntaxSpecificCommand('python')
 HaskellSpecificCommand = SyntaxSpecificCommand('haskell')

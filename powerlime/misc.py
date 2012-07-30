@@ -4,13 +4,13 @@ import os
 import os.path
 import re
 
+from itertools import chain
 from operator import ge, le
 from string import Template
 
-from sublime import Region, TRANSIENT, set_clipboard
+from powerlime.util import get_syntax_name
+from sublime import LITERAL, Region, TRANSIENT, set_clipboard
 from sublime_plugin import TextCommand, WindowCommand
-
-from powerlime.util import CxxSpecificCommand
 
 
 class ChangeLayoutCommand(WindowCommand):
@@ -203,7 +203,7 @@ class MoveAllToGroupCommand(WindowCommand):
         return self.window.active_view() is not None
 
 
-class CopyCurrentPath(CxxSpecificCommand):
+class CopyCurrentPath(TextCommand):
     ''' Copies path of currently opened file to clipboard '''
 
     def run(self, edit, relative=True):
@@ -213,54 +213,94 @@ class CopyCurrentPath(CxxSpecificCommand):
                 if path.startswith(folder + os.sep):
                     path = path[len(folder) + 1:]
                     break
-        path = '#inlcude "{0}.h"'.format(os.path.splitext(path)[0])
         set_clipboard(path)
 
 
-class OpenFileCommand(CxxSpecificCommand):
-    ''' Opens a file under cursor '''
-
-    USER_INCLUDE, SYS_INCLUDE = xrange(2)
-
-    def run(self, edit, transient=False):
-        for sel in self.view.sel():
-            if sel.empty():
-                line = self.view.line(sel.a)
-                file_names = self.extract_file_names(
-                    self.view.substr(line),
-                    sel.a - line.a
+class FindAllVisible(TextCommand):
+    def run(self, edit):
+        view = self.view
+        visible_region = view.visible_region()
+        sel = view.sel()
+        user_sel = list(sel)
+        sel.clear()
+        for single_sel in user_sel:
+            if single_sel.empty():
+                regions = self.find_iter(
+                    visible_region,
+                    r'\b{0}\b'.format(
+                        re.escape(
+                            view.substr(
+                                view.word(
+                                    single_sel)))),
+                    0
                 )
             else:
-                file_names = [(self.OTHER_MATCH, self.view.substr(sel))]
-            self.open_file(file_names, transient)
+                regions = self.find_iter(
+                    visible_region,
+                    view.substr(single_sel),
+                    LITERAL
+                )
 
-    def open_file(self, file_names, transient):
+            empty = True
+            for region in regions:
+                sel.add(region)
+                empty = False
+            if empty:
+                sel.add(single_sel)
+
+    def find_iter(self, region, pattern, flags):
+        pos = region.begin()
+        while True:
+            match = self.view.find(pattern, pos, flags)
+            if match is None:
+                break
+            yield match
+            pos = match.end()
+            if pos >= region.end():
+                break
+
+
+class OpenFileAtCursorCommand(TextCommand):
+    ''' Opens a file under the cursor '''
+
+    def run(self, edit, transient=False):
+        view = self.view
         if transient:
             flags = TRANSIENT
         else:
             flags = 0
 
-        for type, file_name in file_names:
-            if type == self.USER_INCLUDE:
-                rel_file_name = self.view.file_name()
-                if rel_file_name is not None:
-                    rel_file_name = os.path.join(
-                        os.path.dirname(rel_file_name),
-                        file_name
-                    )
-                    if os.path.isfile(rel_file_name):
-                        self.view.window().open_file(rel_file_name, flags)
-                        break
-            if os.path.isfile(file_name):
-                self.view.open_file(file_name, flags)
-                break
-            for folder in self.view.window().folders():
-                rel_file_name = os.path.join(folder, file_name)
-                if os.path.isfile(rel_file_name):
-                    self.view.open_file(rel_file_name, flags)
-                    break
+        for sel in view.sel():
+            if sel.empty():
+                line = view.line(sel.a)
+                file_names = self.get_file_names(
+                    view.substr(line),
+                    sel.a - line.a
+                )
+            else:
+                file_names = [view.substr(sel)]
 
-    def extract_file_names(self, line, pos):
+            window = view.window()
+            search_paths = list(chain.from_iterable(
+                window.folders() if dir_name is None else [dir_name]
+                for dir_name in
+                view.settings().get('open_search_paths', ['.', None])
+            ))
+            for file_name in file_names:
+                if not os.path.isabs(file_name):
+                    for dir_name in search_paths:
+                        full_name = os.path.join(dir_name, file_name)
+                        if os.path.isfile(full_name):
+                            window.open_file(full_name, flags)
+                            break
+                    else:
+                        continue
+                else:
+                    full_name = file_name
+                window.open_file(full_name, flags)
+                break
+
+    def get_file_names(self, line, pos):
         def find_range(begin, end):
             try:
                 i = line.rindex(begin, 0, pos)
@@ -268,28 +308,15 @@ class OpenFileCommand(CxxSpecificCommand):
             except ValueError:
                 return None
             else:
-                return i + 1, j
+                i += 1
+                file_names.append((j - i, line[i:j]))
 
         file_names = []
-
-        tup = find_range('"', '"')
-        if tup is not None:
-            file_names.append((
-                tup[1] - tup[0],
-                self.USER_INCLUDE,
-                line[slice(*tup)]
-            ))
-
-        tup = find_range('<', '>')
-        if tup is not None:
-            file_names.append((
-                tup[1] - tup[0],
-                self.SYS_INCLUDE,
-                line[slice(*tup)]
-            ))
-
+        find_range('"', '"')
+        find_range("'", "'")
+        find_range('<', '>')
         file_names.sort()
-        return [tup[1:] for tup in file_names]
+        return [tup[1] for tup in file_names]
 
 
 class GotoBlockCommand(TextCommand):
@@ -355,6 +382,8 @@ class GotoBlockCommand(TextCommand):
 
 
 class DeletePartCommand(TextCommand):
+    ''' Delete part of a word '''
+
     # Taken from default Sublime settings
     WORD_SEPARATORS = "./\\()\"'-:,.;<>~!@#$%^&*|+=[]{}`~?"
 

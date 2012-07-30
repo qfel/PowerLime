@@ -1,21 +1,30 @@
+from sublime import Region
+
 from powerlime.util import CxxSpecificCommand
 
 
 class SortIncludesCommand(CxxSpecificCommand):
     def run(self, edit):
-        def set_sel(region_list):
-            sel.clear()
-            for region in region_list:
-                sel.add(region)
+        view = self.view
+        regions = view.find_by_selector('meta.preprocessor.c.include')
+        if not regions:
+            return
 
-        sel = self.view.sel()
-        if len(sel) == 1 and sel[0].empty():
-            sel_copy = list(sel)
-            set_sel(self.view.find_all(r'^(?:[ \t]*#[ \t]*include[ \t]*(?:"|<)[^\n]+\n)+'))
-        else:
-            sel_copy = None
+        regions = iter(regions)
+        prev_region = next(regions)
+        a = prev_region.a
+        b = prev_region.b
+        for region in regions:
+            if prev_region.b + 1 != region.a or \
+                    view.substr(prev_region.b) != '\n':  # This feels unnecessary
+                self.sort_lines(edit, Region(a, b))
+                a = region.a
+            b = region.b
+            prev_region = region
+        self.sort_lines(edit, Region(a, b))
 
-        self.view.run_command('sort_lines')
-
-        if sel_copy is not None:
-            set_sel(sel_copy)
+    def sort_lines(self, edit, region):
+        view = self.view
+        lines = [view.substr(line) for line in view.lines(region)]
+        lines.sort()
+        view.replace(edit, region, u'\n'.join(lines))

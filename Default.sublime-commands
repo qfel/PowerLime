@@ -57,5 +57,12 @@
         "args": {
             "mode": "parent"
         }
+    },
+    {
+        "caption": "Open OWNERS",
+        "command": "open_ancestor_file",
+        "args": {
+            "name": "OWNERS"
+        }
     }
 ]

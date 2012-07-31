@@ -8,7 +8,6 @@ from itertools import chain
 from operator import ge, le
 from string import Template
 
-from powerlime.util import get_syntax_name
 from sublime import LITERAL, Region, TRANSIENT, set_clipboard
 from sublime_plugin import TextCommand, WindowCommand
 
@@ -425,3 +424,26 @@ class DeletePartCommand(TextCommand):
                 if forward else
                 Region(sel.a - index, sel.a)
             )
+
+
+class OpenAncestorFile(TextCommand):
+    def run(self, edit, name, transient=True):
+        path = self.view.file_name()
+        components = []
+        while True:
+            head, tail = os.path.split(path)
+            if not tail:
+                components.append(head)
+                break
+            components.append(tail)
+            path = head
+        components.reverse()
+
+        while components:
+            components[-1] = name
+            file_name = os.path.join(*components)
+            if os.path.isfile(file_name):
+                self.view.window().open_file(file_name, TRANSIENT if transient
+                    else 0)
+                break
+            components.pop()

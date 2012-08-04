@@ -6,7 +6,7 @@ from Queue import Empty, Queue
 from subprocess import PIPE, Popen
 from threading import Lock, Thread
 
-from sublime import View, load_settings
+from sublime import View
 from sublime_plugin import TextCommand
 
 PICKLE_PROTOCOL = 2

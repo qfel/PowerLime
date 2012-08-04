@@ -26,5 +26,6 @@ class SortIncludesCommand(CxxSpecificCommand):
     def sort_lines(self, edit, region):
         view = self.view
         lines = [view.substr(line) for line in view.lines(region)]
-        lines.sort()
-        view.replace(edit, region, u'\n'.join(lines))
+        sorted_lines = sorted(lines)
+        if sorted_lines != lines:
+            view.replace(edit, region, u'\n'.join(sorted_lines))

@@ -4,6 +4,7 @@ from powerlime.help.haskell import *
 from powerlime.help.python import *
 from powerlime.misc import *
 from powerlime.run_command import *
+# from powerlime.xtags import *
 
 
 class ReloadPowerLimeCommand(ApplicationCommand):

@@ -48,7 +48,7 @@
         "command": "sort_includes"
     },
     {
-        "caption": "C/C++: Copy Current File Path",
+        "caption": "Copy Current File Path",
         "command": "copy_current_path"
     },
     {

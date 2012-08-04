@@ -208,7 +208,9 @@ class CopyCurrentPath(TextCommand):
     def run(self, edit, relative=True):
         path = self.view.file_name()
         if relative:
+            path = os.path.realpath(path)
             for folder in self.view.window().folders():
+                folder = os.path.realpath(folder)
                 if path.startswith(folder + os.sep):
                     path = path[len(folder) + 1:]
                     break
@@ -426,7 +428,7 @@ class DeletePartCommand(TextCommand):
             )
 
 
-class OpenAncestorFile(TextCommand):
+class OpenAncestorFileCommand(TextCommand):
     def run(self, edit, name, transient=True):
         path = self.view.file_name()
         components = []
@@ -447,3 +449,20 @@ class OpenAncestorFile(TextCommand):
                     else 0)
                 break
             components.pop()
+
+from sublime_plugin import EventListener
+
+class Test(EventListener):
+    def __init__(self):
+        self.settings = load_settings('Preferences.sublime-settings')
+        from collections import deque
+        self.views = deque
+
+    def on_new(self, view):
+        self.views.append(view.id())
+
+    on_clone = on_new
+
+    def on_close(self, view):
+        self.views.remove(view.id())
+

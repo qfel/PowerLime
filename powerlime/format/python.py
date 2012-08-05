@@ -2,6 +2,7 @@ import ast
 
 from itertools import groupby
 
+from sublime import Region, status_message
 from sublime_plugin import TextCommand
 
 from powerlime.util import PythonSpecificCommand
@@ -112,11 +113,9 @@ class PythonImportFormatter(object):
                 try:
                     src = ast.parse(u'\n'.join(lines))
                 except SyntaxError:
-                    self._output.extend(lines)
-                    continue
+                    return None
                 except TypeError:
-                    self._output.extend(lines)
-                    continue
+                    return None
 
                 imports = []
                 from_imports = []
@@ -126,8 +125,7 @@ class PythonImportFormatter(object):
                     elif isinstance(stmt, ast.ImportFrom):
                         from_imports.append(stmt)
                     else:
-                        self._output.extend(lines)
-                        break
+                        return None
                 else:
                     self._sort_imports(imports)
                     self._sort_from_imports(from_imports)
@@ -147,6 +145,8 @@ class PythonImportFormatter(object):
 class SortPythonImportsCommand(PythonSpecificCommand):
     ''' Sort Python imports '''
 
+    IMPORT_RE = r'^(?:(?:import|from)\s[^\\\n]*(\\\n[^\\\n]*)*\n)+'
+
     def run(self, edit):
         view = self.view
         settings = view.settings()
@@ -157,13 +157,24 @@ class SortPythonImportsCommand(PythonSpecificCommand):
             kwargs['wrap_at'] = min(rulers)
         formatter = PythonImportFormatter(**kwargs)
 
-        sel = view.sel()
-        if len(sel) == 1 and sel[0].empty():
-            sel = view.find_all(r'^(?:(?:import|from)\s[^\\\n]*(\\\n[^\\\n]*)*\n)+')
+        regions = view.sel()
+        for sel in regions:
+            if not sel.empty():
+                break
+        else:
+            regions = view.find_all(self.IMPORT_RE)
 
-        for region in sel:
+        for region in regions:
+            if region.empty():
+                continue
+
+            if view.substr(region.end() - 1) == '\n':
+                region = Region(region.begin(), region.end() - 1)
             region = view.line(region)
             text = view.substr(region)
             new_text = formatter.format(text)
+            if new_text is None:
+                status_message('Error: selection contains non-imports')
+                continue
             if text != new_text:
                 view.replace(edit, region, new_text)

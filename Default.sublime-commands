@@ -49,7 +49,14 @@
         }
     },
     {
-        "caption": "Preferences: Command Palette",
+        "caption": "Preferences: Command Palette - Default",
+        "command": "open_file",
+        "args": {
+            "file": "${packages}/Default/Default.sublime-commands"
+        }
+    },
+    {
+        "caption": "Preferences: Command Palette - User",
         "command": "open_file",
         "args": {
             "file": "${packages}/User/Default.sublime-commands"
@@ -60,6 +67,41 @@
         "command": "fold_by_selector",
         "args": {
             "selector": "comment"
+        }
+    },
+    {
+        "caption": "Open Files: Push",
+        "command": "files_stack",
+        "args": {
+            "cmd": "push"
+        }
+    },
+    {
+        "caption": "Open Files: Pop",
+        "command": "files_stack",
+        "args": {
+            "cmd": "pop"
+        }
+    },
+    {
+        "caption": "Open Files: Emplace",
+        "command": "files_stack",
+        "args": {
+            "cmd": "emplace"
+        }
+    },
+    {
+        "caption": "Open Files: Apply",
+        "command": "files_stack",
+        "args": {
+            "cmd": "apply"
+        }
+    },
+    {
+        "caption": "Open Files: Clear",
+        "command": "files_stack",
+        "args": {
+            "cmd": "clear"
         }
     }
 ]

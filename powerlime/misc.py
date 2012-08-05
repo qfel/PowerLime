@@ -1,205 +1,12 @@
-from __future__ import division
-
 import os
 import os.path
 import re
 
+from collections import namedtuple
 from itertools import chain
-from operator import ge, le
-from string import Template
 
 from sublime import LITERAL, Region, TRANSIENT, set_clipboard
 from sublime_plugin import TextCommand, WindowCommand
-
-
-class ChangeLayoutCommand(WindowCommand):
-    ''' Set layout to custom numbers of rows per column '''
-
-    def run(self, rows_per_col):
-        rows = list(set(i / n for n in rows_per_col for i in xrange(n + 1)))
-        rows.sort()
-
-        n = len(rows_per_col)
-        cols = [i / n for i in xrange(n + 1)]
-
-        cells = [
-            [
-                i, rows.index(j / rows_per_col[i]),
-                i + 1, rows.index((j + 1) / rows_per_col[i])
-            ]
-            for i in xrange(len(rows_per_col))
-            for j in xrange(rows_per_col[i])
-        ]
-
-        self.window.set_layout({
-            'rows': rows,
-            'cols': cols,
-            'cells': cells
-        })
-
-
-class SwitchViewInGroupCommand(WindowCommand):
-    ''' Switch between views in same group '''
-
-    def run(self, delta):
-        win = self.window
-        group, index = win.get_view_index(self.window.active_view())
-        views = win.views_in_group(group)
-        win.focus_view(views[(index + delta) % len(views)])
-
-    def is_enabled(self):
-        win = self.window
-        return bool(win.views_in_group(win.active_group()))
-
-
-class SwitchGroupCommand(WindowCommand):
-    ''' Switch between groups '''
-
-    def run(self, delta):
-        win = self.window
-        win.focus_group((win.active_group() + delta) % win.num_groups())
-
-    def is_enabled(self):
-        return self.window.num_groups() > 1
-
-
-class SwitchGroupTwoDimCommand(WindowCommand):
-    ''' Switch groups 2D '''
-
-    def run(self, edge):
-        win = self.window
-        cells = win.get_layout()['cells']
-        group = self._find_adjacent(cells, cells[win.active_group()], edge)
-        win.focus_group(group)
-
-    def is_enabled(self):
-        return self.window.num_groups() > 1
-
-    def _find_adjacent(self, cells, cell, component):
-        if len(component) != 2:
-            raise ValueError('Invalid component: ' + component)
-        if component[0] == 'x':
-            proj_scalar = 0
-            proj_range = (1, 3)
-        elif component[0] == 'y':
-            proj_scalar = 1
-            proj_range = (0, 2)
-        else:
-            raise ValueError('Invalid component: ' + component)
-        if component[1] not in '12':
-            raise ValueError('Invalid component: ' + component)
-        proj_scalar += int(component[1]) * 2 - 2
-
-        a1 = cell[proj_range[0]]
-        b1 = cell[proj_range[1]]
-
-        scalar = cell[proj_scalar]
-        proj_scalar = (proj_scalar + 2) % 4
-        if proj_scalar < 2:
-            pred = le
-        else:
-            pred = ge
-
-        best = None
-        for i in xrange(len(cells)):
-            a2 = cells[i][proj_range[0]]
-            b2 = cells[i][proj_range[1]]
-            if b2 <= a1 or b1 <= a2:
-                continue
-            if not pred(cells[i][proj_scalar], scalar):
-                continue
-            if best is not None and (
-                    pred(cells[i][proj_scalar], cells[best][proj_scalar]) or
-                    a2 > cells[best][proj_range[0]]
-                ):
-                continue
-            best = i
-
-        return best
-
-
-class GroupViewsCommand(WindowCommand):
-    ''' Move views to groups based on regular expressions '''
-
-    @staticmethod
-    def _normalize_path(path):
-        path = os.path.normcase(path)
-        if os.sep != '/':
-            path = path.replace(os.sep, '/')
-        return path
-
-    def run(self, filters):
-        win = self.window
-        org_view = win.active_view()
-
-        args = {'path': self._normalize_path(org_view.file_name())}
-        args['dir'], args['file'] = os.path.split(args['path'])
-        args['base'], args['ext'] = os.path.splitext(args['file'])
-        for k, v in args.iteritems():
-            args[k] = re.escape(v)
-
-        groups = range(len(filters) - 1, -1, -1)
-        for i in xrange(len(filters)):
-            if not isinstance(filters[i], list):
-                filters[i] = filters[i], groups.pop()
-            else:
-                assert len(filters[i]) == 2
-                groups.remove(filters[i][1])
-
-        for view in reversed(win.views()):
-            path = view.file_name()
-            if path is None:
-                continue
-            path = self._normalize_path(path)
-
-            for regex, group in filters:
-                regex = Template(regex).safe_substitute(args)
-                if re.search(regex, path):
-                    win.set_view_index(view, group, 0)
-                    break
-
-        win.focus_view(org_view)
-
-
-class MoveToVisibleCommand(TextCommand):
-    ''' Moves cursor to specified visible part of displayed file '''
-
-    def run(self, edit, position):
-        def set_sel(pos):
-            sel = view.sel()
-            sel.clear()
-            sel.add(Region(pos))
-
-        view = self.view
-        visible = view.visible_region()
-
-        if position == 'begin':
-            set_sel(visible.begin())
-        elif position == 'end':
-            set_sel(visible.end())
-        elif position == 'center':
-            r1, _ = view.rowcol(visible.begin())
-            r2, _ = view.rowcol(visible.end())
-            set_sel(view.text_point((r1 + r2) // 2, 0))
-
-
-class MoveAllToGroupCommand(WindowCommand):
-    ''' Moves all views in current group to adjacent group '''
-
-    def run(self, forward):
-        win = self.window
-
-        active_group = win.active_group()
-        if forward:
-            group = (active_group + 1) % win.num_groups()
-        else:
-            group = (active_group - 1) % win.num_groups()
-
-        for view in reversed(win.views_in_group(active_group)):
-            win.set_view_index(view, group, 0)
-
-    def is_enabled(self):
-        return self.window.active_view() is not None
 
 
 class CopyCurrentPath(TextCommand):
@@ -253,12 +60,10 @@ class FindAllVisible(TextCommand):
         pos = region.begin()
         while True:
             match = self.view.find(pattern, pos, flags)
-            if match is None:
+            if match is None or match.begin() >= region.end():
                 break
             yield match
             pos = match.end()
-            if pos >= region.end():
-                break
 
 
 class OpenFileAtCursorCommand(TextCommand):
@@ -320,116 +125,6 @@ class OpenFileAtCursorCommand(TextCommand):
         return [tup[1] for tup in file_names]
 
 
-class GotoBlockCommand(TextCommand):
-    ''' Moves cursor to text with specified indentation with respect to its
-    current position '''
-
-    def run(self, edit, mode):
-        view = self.view
-        sel = view.sel()
-        if len(sel) != 1:
-            return
-
-        if mode == 'parent':
-            fetch_line = self.prev_line
-            is_match = self.is_parent_block
-        elif mode in ('prev', 'next'):
-            self.separated = False
-            is_match = self.is_adjacent_block
-            if mode == 'prev':
-                fetch_line = self.prev_line
-            else:
-                fetch_line = self.next_line
-        else:
-            raise ValueError('Invalid mode: ' + mode)
-
-        line = view.line(sel[0].b)
-        self.indent = new_indent = self.get_indent(line)
-        line = fetch_line(line)
-        while line is not None:
-            new_indent = self.get_indent(line)
-            if is_match(new_indent if new_indent < line.size() else None):
-                sel.clear()
-                sel.add(Region(line.a + new_indent))
-                view.show(sel)
-                break
-            line = fetch_line(line)
-
-    def is_adjacent_block(self, indent):
-        if indent is None:
-            self.separated = True
-        else:
-            return indent < self.indent or (self.separated and
-                indent == self.indent)
-
-    def is_parent_block(self, indent):
-        return indent is not None and indent < self.indent
-
-    def get_indent(self, line):
-        return re.match('[ \t]*', self.view.substr(line)).end()
-
-    def prev_line(self, line):
-        if line.a > 0:
-            return self.view.line(line.a - 1)
-        else:
-            return None
-
-    def next_line(self, line):
-        line = self.view.line(line.b + 1)
-        if line.a >= self.view.size():
-            return None
-        else:
-            return line
-
-
-class DeletePartCommand(TextCommand):
-    ''' Delete part of a word '''
-
-    # Taken from default Sublime settings
-    WORD_SEPARATORS = "./\\()\"'-:,.;<>~!@#$%^&*|+=[]{}`~?"
-
-    def run(self, edit, forward=True):
-        view = self.view
-        word_separators = view.settings().get('word_separators',
-            self.WORD_SEPARATORS)
-        word_separators = frozenset(word_separators)
-
-        for sel in view.sel():
-            if not sel.empty():
-                continue
-
-            line_sel = view.line(sel)
-            if forward:
-                part = view.substr(Region(sel.a, line_sel.b))
-            else:
-                part = reversed(view.substr(Region(line_sel.a, sel.a)))
-
-            index = 0  # In case part is empty
-            char_class = 0
-            for index, char in enumerate(part):
-                if char.isspace() or char in word_separators:
-                    break
-                if char.isupper():
-                    if forward and char_class == -1:
-                        break
-                    char_class = 1
-                elif char.islower():
-                    if not forward and char_class == 1:
-                        break
-                    char_class = -1
-                elif char.isdigit():
-                    char_class = 0
-                else:
-                    break
-
-            if index > 0:
-                view.erase(edit,
-                    Region(sel.a, sel.a + index)
-                    if forward else
-                    Region(sel.a - index, sel.a)
-                )
-
-
 class OpenAncestorFileCommand(TextCommand):
     def run(self, edit, name, transient=True):
         path = self.view.file_name()
@@ -465,3 +160,53 @@ class FoldBySelectorCommand(TextCommand):
                             self.view.substr(region.b - 1) == '\n':
                         regions[i] = Region(region.a, region.b - 1)
             self.view.fold(regions)
+
+
+class FilesStackCommand(WindowCommand):
+    ViewState = namedtuple('ViewState', 'file_name selections visible_region')
+
+    def __init__(self, *args, **kwargs):
+        WindowCommand.__init__(self, *args, **kwargs)
+        self.state = []
+
+    def run(self, cmd):
+        if cmd == 'clear':
+            self.state.clear()
+        elif cmd == 'push':
+            self.state.append(self.capture_state())
+        elif cmd == 'emplace':
+            if self.state:
+                self.state[-1] = self.capture_state()
+            else:
+                self.state.append(self.capture_state())
+        elif cmd == 'pop':
+            self.restore_state(self.state.pop())
+        elif cmd == 'apply':
+            self.restore_state(self.state[-1])
+        else:
+            raise ValueError('Unknown command: ' + cmd)
+
+    def is_enabled(self, cmd):
+        if cmd in ('pop', 'clear', 'apply'):
+            return bool(self.state)
+        else:
+            return True
+
+    def capture_state(self):
+        groups = []
+        for group_i in xrange(self.window.num_groups()):
+            group = []
+            for view in self.window.views_in_group(group_i):
+                group.append(self.ViewState(
+                    file_name=view.file_name(),
+                    selections=tuple(view.sel()),
+                    visible_region=view.visible_region()))
+            groups.append(group)
+        return groups
+
+    def restore_state(self, state):
+        self.window.run_command('close_all')
+        for group_i, group in enumerate(state):
+            self.window.focus_group(group_i)
+            for view in group:
+                self.window.open_file(view.file_name)

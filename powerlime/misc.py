@@ -2,11 +2,13 @@ import os
 import os.path
 import re
 
-from collections import namedtuple
+from collections import deque, namedtuple
 from itertools import chain
+from weakref import ref
 
-from sublime import LITERAL, Region, TRANSIENT, set_clipboard
-from sublime_plugin import TextCommand, WindowCommand
+from sublime import LITERAL, MONOSPACE_FONT, Region, TRANSIENT, load_settings, \
+    set_clipboard
+from sublime_plugin import EventListener, TextCommand, WindowCommand
 
 
 class CopyCurrentPath(TextCommand):
@@ -162,35 +164,58 @@ class FoldBySelectorCommand(TextCommand):
             self.view.fold(regions)
 
 
-class FilesStackCommand(WindowCommand):
-    ViewState = namedtuple('ViewState', 'file_name selections visible_region')
+class StackCommand(object):
+    _state = None
+    __max_size = None
 
-    def __init__(self, *args, **kwargs):
-        WindowCommand.__init__(self, *args, **kwargs)
-        self.state = []
+    def set_max_size(self, maxlen):
+        if maxlen != self.__max_size:
+            self.__max_size = maxlen
+            self._state = deque(self._state or [], maxlen)
 
-    def run(self, cmd):
+    def run(self, edit=None, cmd=None, internal=None):
+        self.reload_settings()
+        if self._state is None:
+            state = self._state = []
+        else:
+            state = self._state
+
         if cmd == 'clear':
-            self.state.clear()
+            state.clear()
         elif cmd == 'push':
-            self.state.append(self.capture_state())
+            state.append(internal or self.capture_state())
         elif cmd == 'emplace':
-            if self.state:
-                self.state[-1] = self.capture_state()
+            if state:
+                state[-1] = self.capture_state()
             else:
-                self.state.append(self.capture_state())
+                state.append(self.capture_state())
         elif cmd == 'pop':
-            self.restore_state(self.state.pop())
+            self.restore_state(state.pop())
         elif cmd == 'apply':
-            self.restore_state(self.state[-1])
+            self.restore_state(state[-1])
+        elif cmd == 'select_apply' and hasattr(self, 'state_to_item'):
+            self.get_window().show_quick_panel(
+                [self.state_to_item(entry) for entry in reversed(state)],
+                lambda i: (None if i == -1
+                    else self.restore_state(state[-i - 1])),
+                MONOSPACE_FONT
+            )
         else:
             raise ValueError('Unknown command: ' + cmd)
 
     def is_enabled(self, cmd):
-        if cmd in ('pop', 'clear', 'apply'):
-            return bool(self.state)
+        if cmd in ('pop', 'clear', 'apply', 'select_apply'):
+            return bool(self._state)
         else:
             return True
+
+
+class FilesStackCommand(StackCommand, WindowCommand):
+    ViewState = namedtuple('ViewState', 'file_name selections visible_region')
+
+    def reload_settings(self):
+        settings = load_settings('Preferences.sublime-settings')
+        self.set_max_size(settings.get('files_stack_size', 4))
 
     def capture_state(self):
         groups = []
@@ -210,3 +235,115 @@ class FilesStackCommand(WindowCommand):
             self.window.focus_group(group_i)
             for view in group:
                 self.window.open_file(view.file_name)
+
+
+class ViewportStackCommand(StackCommand, TextCommand):
+    def __init__(self, view):
+        TextCommand.__init__(self, view)
+        ViewportPusher.states[view.id()] = self, self.capture_state()
+
+    def reload_settings(self):
+        self.set_max_size(self.view.settings().get('viewport_stack_size', 10))
+
+    def capture_state(self):
+        return (self.view.viewport_position(), tuple(self.view.sel()))
+
+    def restore_state(self, (viewport, selections)):
+        ViewportPusher.expected.add(self.view.id())
+        self.view.set_viewport_position(viewport)
+        sel_set = self.view.sel()
+        sel_set.clear()
+        for sel in selections:
+            sel_set.add(sel)
+
+    def state_to_item(self, (viewport, selections)):
+        item = []
+        if len(selections) > 1:
+            item.append('Multiple selections')
+            context = 0
+        else:
+            context = self.view.settings().get('viewport_stack_context', 2)
+            if context > 0:
+                item.append('{0} characters selected'.format(
+                    sum(sel.size() for sel in selections)))
+
+        for sel in selections:
+            begin_row, begin_col = self.view.rowcol(sel.a)
+            end_row, end_col = self.view.rowcol(sel.b)
+
+            if context > 0 and begin_row > 0:
+                region = Region(
+                    self.view.text_point(max(begin_row - context, 0), 0),
+                    self.view.text_point(begin_row, 0) - 1
+                )
+                lines = self.view.lines(region)
+                for i, line in enumerate(lines):
+                    item.append('{0}: {1}'.format(
+                        begin_row - len(lines) + i + 1, self.view.substr(line)))
+
+            if begin_row == end_row:
+                item.append('{0}:{1} {2}'.format(
+                    begin_row + 1,
+                    begin_col + 1 if begin_col == end_col
+                        else '{0}-{1}'.format(begin_col + 1, end_col + 1),
+                    self.view.substr(self.view.line(sel))
+                ))
+            else:
+                lines = self.view.lines(sel)
+                for i, line in enumerate(lines):
+                    if i == 0:
+                        col = begin_col
+                    elif i == len(lines) - 1:
+                        col = end_col
+                    else:
+                        col = '*'
+                    item.append('{0}:{1} {2}'.format(
+                        begin_row + 1 + i,
+                        col,
+                        self.view.substr(self.view.line(sel))
+                    ))
+
+            if context > 0:
+                region = Region(
+                    self.view.text_point(end_row + 1, 0),
+                    self.view.text_point(end_row + 1 + context, 0) - 1
+                )
+                if region.a < region.b:
+                    for i, line in enumerate(self.view.lines(region)):
+                        item.append('{0}: {1}'.format(end_row + 2 + i,
+                            self.view.substr(line)))
+
+        return item
+
+    def get_window(self):
+        return self.view.window()
+
+
+class ViewportPusher(EventListener):
+    class State(object):
+        def __init__(self, cmd, state):
+            self.cmd = cmd
+            self.state = state
+
+    states = {}
+    expected = set()
+    settings = load_settings('Preferences.sublime-settings')
+
+    def on_selection_modified(self, view):
+        if not self.settings.get('viewport_stack_auto'):
+            return
+        entry = self.states.get(view.id())
+        if entry is None:
+            return
+
+        cmd, last_state = entry
+        state = cmd.capture_state()
+        if view.id() in self.expected:
+            self.expected.remove(view.id())
+        elif state[0] != last_state[0]:
+            cmd.run(None, cmd='push', internal=last_state)
+        self.states[view.id()] = cmd, state
+
+    def on_close(self, view):
+        self.expected.discard(view.id())
+        del self.states[view.id()]

@@ -103,5 +103,47 @@
         "args": {
             "cmd": "clear"
         }
+    },
+    {
+        "caption": "Viewport: Push",
+        "command": "viewport_stack",
+        "args": {
+            "cmd": "push"
+        }
+    },
+    {
+        "caption": "Viewport: Pop",
+        "command": "viewport_stack",
+        "args": {
+            "cmd": "pop"
+        }
+    },
+    {
+        "caption": "Viewport: Emplace",
+        "command": "viewport_stack",
+        "args": {
+            "cmd": "emplace"
+        }
+    },
+    {
+        "caption": "Viewport: Apply",
+        "command": "viewport_stack",
+        "args": {
+            "cmd": "apply"
+        }
+    },
+    {
+        "caption": "Viewport: Clear",
+        "command": "viewport_stack",
+        "args": {
+            "cmd": "clear"
+        }
+    },
+    {
+        "caption": "Viewport: Show Stack",
+        "command": "viewport_stack",
+        "args": {
+            "cmd": "select_apply"
+        }
     }
 ]

@@ -15,40 +15,31 @@ SymbolRef = namedtuple('SymbolRef', 'file row col pos context')
 class XTagsCommand(TextCommand):
     handlers = {}
 
-    def run(self, edit, language=None, types=('def', 'read', 'write'),
-            sources=None):
+    def run(self, edit, language=None, source=None,
+            types=('def', 'read', 'write')):
         view = self.view
         if language is None:
             language = get_syntax_name(view)
-        handler_count = 0
-        matches = []
+        tags = []
         selections = view.sel()
         for handler in self.handler.get(language, []):
-            if handler.NAME in sources:
+            if source is None or handler.NAME == source:
                 for sel in selections:
                     if sel.empty():
-                        name = handler.get_symbol_name(language, view,
-                            sel.a)
+                        name = handler.get_symbol_name(language, view, sel.a)
                     else:
                         name = view.substr(sel)
-                matches.extend(handler.find_symbol(language, name, types))
-                handler_count += 1
+                tags.extend(handler.find_symbol(language, name, types))
 
-        if not matches:
+        if not tags:
             status_message('Not found: ' + name)
             return
 
-        if len(matches) > 1:
-            if handler_count > 1:
-                self.remove_duplicates(matches)
-            view.window().show_quick_panel(map(self.tag_to_item, matches),
-                    lambda i: (self.open_tag(matches[i]) if i != -1 else None))
+        if len(tags) > 1:
+            view.window().show_quick_panel(map(self.tag_to_item, tags),
+                    lambda i: (self.open_tag(tags[i]) if i != -1 else None))
         else:
-            self.open_tag(matches[0])
-
-    def remove_duplicates(self, tags):
-        for i in xrange(len(tags) - 1, 0, -1):
-            if tags[i].file == tags[i - 1].file and tag
+            self.open_tag(tags[0])
 
     def tag_to_item(self, tag):
         item = []
@@ -91,108 +82,23 @@ class XTagsCommand(TextCommand):
 
 
 class TagsHandler(object):
-    def get_symbol_name(self, settings, language, view, pos):
+    def get_symbol_name(self, language, view, pos):
         return view.substr(view.word(pos))
 
+    def update_index(self, path):
+        pass
 
-@XTagsCommand.handler
+
+#@XTagsCommand.handler
 class GoogleTagsHandler(TagsHandler):
-    def find_symbol(self, settings, language, name, types):
+    def find_symbol(self, language, name, types):
         flags = []
         if 'def' in types:
             flags.append(0)
         if 'read' in types or 'write' in types:
             flags.append(1)
         for flag in flags:
-            for match in self.gtags.find_matching_tags_exact(language, name,
-                    flag)):
-                yield SymbolRef(file=match.filename_, row=match.lineno_,
-                    col=None, pos=match.offset_, context=match.snippet_)
-
-
-class GoogleTagsCommand(TextCommand):
-    gtags = None
-    google3_path = None
-    settings = load_settings('Preferences.sublime-settings')
-
-    @classmethod
-    def on_google3_set(cls):
-        google3_path = cls.settings.get('google3_path')
-        if google3_path == cls.google3_path:
-            return
-
-        cls.gtags = None
-        cls.google3_path = google3_path
-        if google3_path is None:
-            return
-
-        # Unload previously loaded gtags version
-        if 'gtags' in sys.modules:
-            del sys.modules['gtags']
-        if 'gtags_google' in sys.modules:
-            del sys.modules['gtags_google']
-
-        # Load gtags modules
-        gtags_path = os.path.join(google3_path, 'tools', 'tags')
-        sys.path.append(gtags_path)
-        try:
-            import gtags
-            import gtags_google
-        except ImportError as e:
-            error_message(
-                'google3_path is set to "{0}" but gtags module(s) not found: {1}\n'
-                'Make sure you have run prodaccess.'.format(google3_path, e)
-            )
-            return
-        finally:
-            sys.path.remove(gtags_path)
-
-        gtags_google.define_servers('google3')
-        gtags.connection_manager.use_mixer = True
-
-        cls.gtags = gtags
-
-    def run(self, edit, language=None, references=False):
-        if language is None:
-            language = get_syntax_name(self.view)
-
-        sel = self.view.sel()
-        for sel in sel:
-            if sel.empty():
-                sel = self.view.word(sel)
-            tag = self.view.substr(sel)
-            tags = self.gtags.find_matching_tags_exact(language, str(tag),
-                1 if references else 0)
-            if not tags:
-                status_message('Not found: ' + tag)
-                return
-
-            if len(tags) > 1:
-                self.view.window().show_quick_panel(self.tags_to_items(tags),
-                    lambda i: (self.open_tag(tags[i]) if i != -1 else None))
-            else:
-                self.open_tag(tags[0])
-
-    def is_enabled(self, *kwargs):
-        return self.gtags is not None
-
-    def tags_to_items(self, tags):
-        return [
-            [tag.snippet_, '{0}:{1}'.format(tag.filename_, tag.lineno_)]
-            for tag in tags
-        ]
-
-    def open_tag(self, tag):
-        self.view.window().open_file(
-            '{0}:{1}'.format(
-                os.path.join(self.google3_path, tag.filename_), tag.lineno_
-            ),
-            ENCODED_POSITION
-        )
-
-
-# clear_on_change to support reloading during plugin development
-GoogleTagsCommand.settings.clear_on_change(__file__)
-GoogleTagsCommand.settings.add_on_change(__file__,
-    GoogleTagsCommand.on_google3_set)
-GoogleTagsCommand.on_google3_set()
+            for tag in self.gtags.find_matching_tags_exact(language, name,
+                    flag):
+                yield SymbolRef(file=tag.filename_, row=tag.lineno_,
+                    col=None, pos=tag.offset_, context=tag.snippet_)

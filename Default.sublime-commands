@@ -16,30 +16,6 @@
         "command": "run_application_command"
     },
     {
-        "caption": "Group: Same Extension + Others",
-        "command": "group_views",
-        "args": {
-            "filters": ["$ext$", ""]
-        }
-    },
-    {
-        "caption": "Group: Common Path + Others",
-        "command": "group_views",
-        "args": {
-            "filters": ["^$dir/", ""]
-        }
-    },
-    {
-        "caption": "Group: Others + Models/Views/Urls",
-        "command": "group_views",
-        "args": {
-            "filters": [
-                ["/(?:models|views|urls)\\.py$", 1],
-                ""
-            ]
-        }
-    },
-    {
         "caption": "Haskell: Hoogle Search",
         "command": "hoogle"
     },
@@ -63,6 +39,27 @@
         "command": "open_ancestor_file",
         "args": {
             "name": "OWNERS"
+        }
+    },
+    {
+        "caption": "Open OWNERS",
+        "command": "open_ancestor_file",
+        "args": {
+            "name": "OWNERS"
+        }
+    },
+    {
+        "caption": "Preferences: Command Palette",
+        "command": "open_file",
+        "args": {
+            "file": "${packages}/User/Default.sublime-commands"
+        }
+    },
+    {
+        "caption": "Fold All Comments",
+        "command": "fold_by_selector",
+        "args": {
+            "selector": "comment"
         }
     }
 ]

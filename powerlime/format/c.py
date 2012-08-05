@@ -1,12 +1,32 @@
-from sublime import Region
+from sublime import Region, status_message
 
 from powerlime.util import CxxSpecificCommand
 
 
 class SortIncludesCommand(CxxSpecificCommand):
+    SELECTOR = 'meta.preprocessor.c.include'
+
     def run(self, edit):
         view = self.view
-        regions = view.find_by_selector('meta.preprocessor.c.include')
+        sels = []
+        for sel in view.sel():
+            if not sel.empty():
+                sels.append(sel)
+
+        if sels:
+            for sel in sels:
+                for line in view.lines(sel):
+                    if view.score_selector(line.a, self.SELECTOR) == 0 or \
+                            view.extract_scope(line.a) != line:
+                        status_message('Error: selection contains non-includes')
+                        return
+            for sel in sels:
+                self.sort_lines(edit, view.line(sel))
+        else:
+            self.sort_all_includes(edit)
+
+    def sort_all_includes(self, edit):
+        regions = self.view.find_by_selector(self.SELECTOR)
         if not regions:
             return
 
@@ -16,7 +36,7 @@ class SortIncludesCommand(CxxSpecificCommand):
         b = prev_region.b
         for region in regions:
             if prev_region.b + 1 != region.a or \
-                    view.substr(prev_region.b) != '\n':  # This feels unnecessary
+                    self.view.substr(prev_region.b) != '\n':  # This feels unnecessary
                 self.sort_lines(edit, Region(a, b))
                 a = region.a
             b = region.b

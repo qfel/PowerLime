@@ -404,6 +404,7 @@ class DeletePartCommand(TextCommand):
             else:
                 part = reversed(view.substr(Region(line_sel.a, sel.a)))
 
+            index = 0  # In case part is empty
             char_class = 0
             for index, char in enumerate(part):
                 if char.isspace() or char in word_separators:
@@ -421,11 +422,12 @@ class DeletePartCommand(TextCommand):
                 else:
                     break
 
-            view.erase(edit,
-                Region(sel.a, sel.a + index)
-                if forward else
-                Region(sel.a - index, sel.a)
-            )
+            if index > 0:
+                view.erase(edit,
+                    Region(sel.a, sel.a + index)
+                    if forward else
+                    Region(sel.a - index, sel.a)
+                )
 
 
 class OpenAncestorFileCommand(TextCommand):
@@ -450,19 +452,16 @@ class OpenAncestorFileCommand(TextCommand):
                 break
             components.pop()
 
-from sublime_plugin import EventListener
 
-class Test(EventListener):
-    def __init__(self):
-        self.settings = load_settings('Preferences.sublime-settings')
-        from collections import deque
-        self.views = deque
-
-    def on_new(self, view):
-        self.views.append(view.id())
-
-    on_clone = on_new
-
-    def on_close(self, view):
-        self.views.remove(view.id())
-
+class FoldBySelectorCommand(TextCommand):
+    def run(self, edit, selector, unfold=False, preserve_newlines=True):
+        regions = self.view.find_by_selector(selector)
+        if unfold:
+            self.view.unfold(regions)
+        else:
+            if preserve_newlines:
+                for i, region in enumerate(regions):
+                    if not region.empty() and \
+                            self.view.substr(region.b - 1) == '\n':
+                        regions[i] = Region(region.a, region.b - 1)
+            self.view.fold(regions)

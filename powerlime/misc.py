@@ -4,7 +4,6 @@ import re
 
 from collections import deque, namedtuple
 from itertools import chain
-from weakref import ref
 
 from sublime import LITERAL, MONOSPACE_FONT, Region, TRANSIENT, load_settings, \
     set_clipboard
@@ -36,20 +35,14 @@ class FindAllVisible(TextCommand):
         for single_sel in user_sel:
             if single_sel.empty():
                 regions = self.find_iter(
-                    visible_region,
-                    r'\b{0}\b'.format(
-                        re.escape(
-                            view.substr(
-                                view.word(
-                                    single_sel)))),
-                    0
-                )
+                        visible_region,
+                        r'\b{0}\b'.format(re.escape(view.substr(view.word(
+                                single_sel)))),
+                        0)
             else:
-                regions = self.find_iter(
-                    visible_region,
-                    view.substr(single_sel),
-                    LITERAL
-                )
+                regions = self.find_iter(visible_region,
+                                         view.substr(single_sel),
+                                         LITERAL)
 
             empty = True
             for region in regions:
@@ -83,8 +76,7 @@ class OpenFileAtCursorCommand(TextCommand):
                 line = view.line(sel.a)
                 file_names = self.get_file_names(
                     view.substr(line),
-                    sel.a - line.a
-                )
+                    sel.a - line.a)
             else:
                 file_names = [view.substr(sel)]
 
@@ -100,13 +92,13 @@ class OpenFileAtCursorCommand(TextCommand):
                         full_name = os.path.join(dir_name, file_name)
                         if os.path.isfile(full_name):
                             window.open_file(full_name, flags)
-                            break
+                            return
                     else:
                         continue
                 else:
                     full_name = file_name
                 window.open_file(full_name, flags)
-                break
+                return
 
     def get_file_names(self, line, pos):
         def find_range(begin, end):
@@ -124,6 +116,11 @@ class OpenFileAtCursorCommand(TextCommand):
         find_range("'", "'")
         find_range('<', '>')
         file_names.sort()
+        left_match = re.match(r'[^\s:]*', line[pos - 1::-1])
+        right_match = re.match(r'[^\s:]*', line[pos:])
+        file_names.append((None,
+                           line[pos - left_match.end():
+                                pos + right_match.end()]))
         return [tup[1] for tup in file_names]
 
 

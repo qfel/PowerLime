@@ -6,34 +6,122 @@ from sublime import Region
 from sublime_plugin import TextCommand, WindowCommand
 
 
-class ChangeLayoutCommand(WindowCommand):
-    ''' Set layout to custom numbers of rows per column '''
+class FocusGroupAtCommand(WindowCommand):
+    ''' Focus group at specified visual position.
 
-    def run(self, rows_per_col):
-        rows = list(set(i / n for n in rows_per_col for i in xrange(n + 1)))
-        rows.sort()
+    position: a combination of edges (l, r, t, b for left, right, top and
+    bottom respectively) specifying one of 9 positions that overlaps the group
+    user wants to select. The layout is:
 
-        n = len(rows_per_col)
-        cols = [i / n for i in xrange(n + 1)]
+    lt t tr
+    l     r
+    lb b br
+    '''
 
-        cells = [
-            [
-                i, rows.index(j / rows_per_col[i]),
-                i + 1, rows.index((j + 1) / rows_per_col[i])
-            ]
-            for i in xrange(len(rows_per_col))
-            for j in xrange(rows_per_col[i])
-        ]
+    def run(self, position):
+        def get_index(types, offsets):
+            count = len(offsets) - 1
+            if count < 1 or count > 3:
+                raise ValueError('Invalid offsets')
 
-        self.window.set_layout({
-            'rows': rows,
-            'cols': cols,
-            'cells': cells
-        })
+            if types[0] in position:
+                return 0
+            elif types[1] in position:
+                return count - 1
+            elif count == 3:
+                return 1
+            elif count == 1:
+                return 0
+            else:  # count == 2
+                raise ValueError('Invalid position')
+
+        layout = self.window.get_layout()
+        y = get_index('tb', layout['rows'])
+        x = get_index('lr', layout['cols'])
+        for i, (x1, y1, x2, y2) in enumerate(layout['cells']):
+            if x1 <= x < x2 and y1 <= y < y2:
+                self.window.focus_group(i)
+                break
+
+    def is_enabled(self, position):
+        def check(types, offsets):
+            count = len(offsets) - 1
+            if count in (1, 3):
+                return True
+            elif count == 2:
+                return types[0] in position or types[1] in position
+            else:
+                raise ValueError('Invalid offsets')
+
+        layout = self.window.get_layout()
+        return check('tb', layout['rows']) and check('lr', layout['cols'])
+
+
+class SetLayoutAutoCommand(WindowCommand):
+    ''' Set layout to custom numbers of rows per column or columns per row.
+
+    This is slightly less functional than builtin set_layout command (bound by
+    default to Alt+Shift+<1..4>), but is much easier to pass correct arguments.
+    This command is basically a set_layout wrapper that generates rows, cols and
+    cells parameters based on more readable specification.
+    '''
+
+    def run(self, rows_per_col=None, cols_per_row=None, row_dir=1, col_dir=1):
+        # Validate the arguments.
+        if rows_per_col is None == cols_per_row is None:
+            raise ValueError('Exactly one of rows_per_col and cols_per_row must'
+                             ' be specified')
+        if not (row_dir in (-1, 1) and col_dir in (-1, 1)):
+            raise ValueError('')
+
+        # Take care of symmetry.
+        if rows_per_col is not None:
+            counts = rows_per_col
+            delta1 = col_dir
+            delta2 = row_dir
+        else:
+            counts = cols_per_row
+            delta1 = row_dir
+            delta2 = col_dir
+
+        # Generate sorted row and column offsets.
+        n = len(counts)
+        offsets1 = [i / n for i in xrange(n + 1)]
+        offsets2 = list(set(i / n for n in counts for i in xrange(n + 1)))
+        offsets2.sort()
+
+        # Generate group cells (they may span more than one row or column). Cell
+        # coordinates may be swapped, depending on whether the ordering is row-
+        # or column- major.
+        def auto_xrange(n, delta):
+            if delta > 0:
+                return xrange(0, n, delta)
+            else:
+                return xrange(n - 1, -1, delta)
+
+        cells = []
+        for i1 in auto_xrange(len(counts), delta1):
+            for i2 in auto_xrange(counts[i1], delta2):
+                cells.append([i1, offsets2.index(i2 / counts[i1]),
+                              i1 + 1, offsets2.index((i2 + 1) / counts[i1])])
+
+        # Set the layout, taking care of any symmetric transforms.
+        if rows_per_col is not None:
+            self.window.set_layout({
+                'rows':  offsets2,
+                'cols':  offsets1,
+                'cells': cells
+            })
+        else:
+            self.window.set_layout({
+                'rows':  offsets1,
+                'cols':  offsets2,
+                'cells': [[y1, x1, y2, x2] for (x1, y1, x2, y2) in cells]
+            })
 
 
 class SwitchViewInGroupCommand(WindowCommand):
-    ''' Switch between views in same group '''
+    ''' Switch between views in the same group. '''
 
     def run(self, delta):
         win = self.window
@@ -47,7 +135,7 @@ class SwitchViewInGroupCommand(WindowCommand):
 
 
 class SwitchGroupCommand(WindowCommand):
-    ''' Switch between groups '''
+    ''' Switch between groups. '''
 
     def run(self, delta):
         win = self.window
@@ -58,7 +146,7 @@ class SwitchGroupCommand(WindowCommand):
 
 
 class SwitchGroupTwoDimCommand(WindowCommand):
-    ''' Switch groups 2D '''
+    ''' Switch groups based on their position. '''
 
     def run(self, edge):
         win = self.window
@@ -104,8 +192,7 @@ class SwitchGroupTwoDimCommand(WindowCommand):
                 continue
             if best is not None and (
                     pred(cells[i][proj_scalar], cells[best][proj_scalar]) or
-                    a2 > cells[best][proj_range[0]]
-                ):
+                    a2 > cells[best][proj_range[0]]):
                 continue
             best = i
 
@@ -130,3 +217,29 @@ class MoveToVisibleCommand(TextCommand):
             set_sel(visible.end())
         else:
             raise ValueError('Invalid position: ' + position)
+
+
+# class ForkViewCommand(TextCommand):
+#     def run(self, edit, group='+1', position='=0', overflow='bounce'):
+#         window = self.view.window()
+#         num_groups = window.num_groups()
+
+#         if group == 'last':
+#             group = num_groups - 1
+#         elif group.startswith('='):
+#             group = int(group[1:])
+#         elif group[0] in '+-':
+#             group = window.active_group() + int(group)
+#         else:
+#             raise ValueError('Invalid group format')
+
+#         if overflow == 'wrap':
+
+
+#         if position == 'last':
+#             len(window.views_in_group(group))
+
+#         self.view.run_command('clone_file')
+#         if mode == 'relative_index':
+#             (group, index) = window.get_view_index(self.view)
+#             window.set_view_index(window.active_view(), )

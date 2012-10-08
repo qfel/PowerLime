@@ -1,0 +1,11 @@
+[
+	{ "keys": ["keypad1"], "command": "focus_group_at", "args": { "position": "bl" } },
+	{ "keys": ["keypad2"], "command": "focus_group_at", "args": { "position": "b"  } },
+	{ "keys": ["keypad3"], "command": "focus_group_at", "args": { "position": "br" } },
+	{ "keys": ["keypad4"], "command": "focus_group_at", "args": { "position": "l"  } },
+	{ "keys": ["keypad5"], "command": "focus_group_at", "args": { "position": ""   } },
+	{ "keys": ["keypad6"], "command": "focus_group_at", "args": { "position": "r"  } },
+	{ "keys": ["keypad7"], "command": "focus_group_at", "args": { "position": "tl" } },
+	{ "keys": ["keypad8"], "command": "focus_group_at", "args": { "position": "t"  } },
+	{ "keys": ["keypad9"], "command": "focus_group_at", "args": { "position": "tr" } }
+]

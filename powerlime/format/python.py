@@ -53,7 +53,7 @@ class PythonImportFormatter(object):
                 atom += ', '
 
             if pos + len(atom) > self.wrap_at:
-                parts.append('\n')
+                parts.append('\\\n')
                 if self.indent == ' ':
                     parts.append(' ' * start_pos)
                 else:

@@ -148,17 +148,30 @@ class OpenAncestorFileCommand(TextCommand):
 
 
 class FoldBySelectorCommand(TextCommand):
-    def run(self, edit, selector, unfold=False, preserve_newlines=True):
-        regions = self.view.find_by_selector(selector)
-        if unfold:
-            self.view.unfold(regions)
+    def run(self, edit, selector, unfold=False):
+        view = self.view
+        regions = view.find_by_selector(selector)
+        if not regions:
+            return
+
+        if not unfold:
+            def add_region():
+                end_fix = view.substr(end - 1) == '\n'
+                new_regions.append(Region(begin, end - end_fix))
+
+            begin = regions[0].a
+            end = regions[0].b
+            new_regions = []
+            for i in xrange(1, len(regions)):
+                region = Region(end, regions[i].a)
+                if not view.substr(region).isspace():
+                    add_region()
+                    begin = regions[i].a
+                end = regions[i].b
+            add_region()
+            self.view.fold(new_regions)
         else:
-            if preserve_newlines:
-                for i, region in enumerate(regions):
-                    if not region.empty() and \
-                            self.view.substr(region.b - 1) == '\n':
-                        regions[i] = Region(region.a, region.b - 1)
-            self.view.fold(regions)
+            self.view.unfold(regions)
 
 
 class StackCommand(object):

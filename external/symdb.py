@@ -12,9 +12,9 @@ class SymbolDatabase(object):
         self.cur.executescript('''
             CREATE TABLE IF NOT EXISTS symbols (
                 file_id INTEGER REFERENCES files(rowid),
-                symbol TEXT NOT NULL ,
-                scope TEXT NOT NULL,
-                package TEXT NOT NULL,
+                symbol TEXT NOT NULL,  -- Symbol name, valid Python identifier.
+                scope TEXT NOT NULL,   -- Scope inside a file (eg. class name).
+                package TEXT NOT NULL, -- Package name (eg. "os.path").
                 row INTEGER NOT NULL,
                 col INTEGER NOT NULL
             );
@@ -22,7 +22,7 @@ class SymbolDatabase(object):
 
             CREATE TABLE IF NOT EXISTS files (
                 path TEXT NOT NULL UNIQUE,
-                timestamp REAL NOT NULL
+                timestamp REAL NOT NULL    -- Last modification time.
             );
         ''')
 
@@ -33,15 +33,14 @@ class SymbolDatabase(object):
                 ATTACH DATABASE ? AS ?
             ''', (others[i], db_name))
             self.db_prefixes.append('{}.'.format(db_name))
-        # Performance sucks when using views
+
+        # Performance sucks when using views.
         # self.cur.execute('CREATE TEMP VIEW all_symbols AS ' +
         #     ' UNION '.join(
         #         'SELECT * FROM {}'.format(table_name)
         #         for table_name in table_names
         #     )
         # )
-
-        self.db.commit()
 
     def add(self, symbol, scope, package, path, row, col):
         self.cur.execute('''
@@ -58,6 +57,27 @@ class SymbolDatabase(object):
                 file_id = (SELECT rowid FROM files WHERE path = :name)
         ''', locals())
 
+    def remove_other_files(self, file_paths):
+        self.cur.execute('''
+            CREATE TEMP TABLE file_ids (
+                file_id INTEGER REFERENCES files(rowid)
+            )
+        ''')
+        for file_path in file_paths:
+            self.cur.execute('''
+                INSERT INTO file_ids
+                SELECT rowid
+                FROM files WHERE path = :file_path
+            ''', {'file_path': file_path})
+        self.cur.execute('''
+            DELETE FROM symbols WHERE file_id NOT IN (
+                SELECT file_id FROM file_ids)
+        ''')
+        self.cur.execute('''
+            DELETE FROM files WHERE rowid NOT IN (
+                SELECT file_id FROM file_ids)
+        ''')
+
     def update_file_time(self, path, time):
         args = locals()
         self.cur.execute('''
@@ -65,7 +85,7 @@ class SymbolDatabase(object):
         ''', args)
         row = self.cur.fetchone()
         if row:
-            if row[0] != time:
+            if row[0] < time:
                 self.cur.execute('''
                     UPDATE files SET timestamp = :time WHERE path = :path
                 ''', args)
@@ -118,6 +138,14 @@ class SymbolDatabase(object):
             for row in self.cur:
                 yield self._result_row_to_dict(row)
 
+    def indexed_files(self):
+        self.cur.execute('''
+            SELECT DISTINCT f.path
+            FROM symbols s, files f
+            WHERE s.file_id = f.rowid
+        ''')
+        return (row[0] for row in self.cur)
+
 
 class SymbolExtractor(ast.NodeVisitor):
     def __init__(self, db, path, package):
@@ -168,6 +196,7 @@ class SymbolExtractor(ast.NodeVisitor):
         self.db.add(name, '.'.join(self.scope), self.package, self.path,
             node.lineno - 1, node.col_offset)
 
+
 db = None
 
 
@@ -196,12 +225,18 @@ def process_file(path, force=False):
     path = os.path.normcase(os.path.normpath(path))
     if db.update_file_time(path, os.path.getmtime(path)) or force:
         db.clear_file(path)
-        SymbolExtractor(db, path, get_package(path)).visit(ast.parse(
-            open(path).read(), path))
-        db.commit()
+        try:
+            file_ast = ast.parse(open(path).read(), path)
+        except:
+            return False
+        SymbolExtractor(db, path, get_package(path)).visit(file_ast)
         return True
     else:
         return False
+
+
+def remove_other_files(file_paths):
+    db.remove_other_files(file_paths)
 
 
 def query_occurrences(symbol, scope='*', package='*'):
@@ -210,3 +245,7 @@ def query_occurrences(symbol, scope='*', package='*'):
 
 def query_all():
     return list(db.all())
+
+
+def commit():
+    db.commit()

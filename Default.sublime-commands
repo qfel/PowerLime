@@ -1,4 +1,21 @@
 [
+    // Command palette commands for already existing ones.
+    {
+        "caption": "Preferences: Command Palette - Default",
+        "command": "open_file",
+        "args": {
+            "file": "${packages}/Default/Default.sublime-commands"
+        }
+    },
+    {
+        "caption": "Preferences: Command Palette - User",
+        "command": "open_file",
+        "args": {
+            "file": "${packages}/User/Default.sublime-commands"
+        }
+    },
+
+    // Commands implemented by PowerLime.
     {
         "caption": "Python: Sort Imports",
         "command": "sort_python_imports"
@@ -27,115 +44,10 @@
         }
     },
     {
-        "caption": "Open OWNERS",
-        "command": "open_ancestor_file",
-        "args": {
-            "name": "OWNERS"
-        }
-    },
-    {
-        "caption": "Open OWNERS",
-        "command": "open_ancestor_file",
-        "args": {
-            "name": "OWNERS"
-        }
-    },
-    {
-        "caption": "Preferences: Command Palette - Default",
-        "command": "open_file",
-        "args": {
-            "file": "${packages}/Default/Default.sublime-commands"
-        }
-    },
-    {
-        "caption": "Preferences: Command Palette - User",
-        "command": "open_file",
-        "args": {
-            "file": "${packages}/User/Default.sublime-commands"
-        }
-    },
-    {
         "caption": "Fold All Comments",
         "command": "fold_by_selector",
         "args": {
-            "selector": "comment"
-        }
-    },
-    {
-        "caption": "Open Files: Push",
-        "command": "files_stack",
-        "args": {
-            "cmd": "push"
-        }
-    },
-    {
-        "caption": "Open Files: Pop",
-        "command": "files_stack",
-        "args": {
-            "cmd": "pop"
-        }
-    },
-    {
-        "caption": "Open Files: Emplace",
-        "command": "files_stack",
-        "args": {
-            "cmd": "emplace"
-        }
-    },
-    {
-        "caption": "Open Files: Apply",
-        "command": "files_stack",
-        "args": {
-            "cmd": "apply"
-        }
-    },
-    {
-        "caption": "Open Files: Clear",
-        "command": "files_stack",
-        "args": {
-            "cmd": "clear"
-        }
-    },
-    {
-        "caption": "Viewport: Push",
-        "command": "viewport_stack",
-        "args": {
-            "cmd": "push"
-        }
-    },
-    {
-        "caption": "Viewport: Pop",
-        "command": "viewport_stack",
-        "args": {
-            "cmd": "pop"
-        }
-    },
-    {
-        "caption": "Viewport: Emplace",
-        "command": "viewport_stack",
-        "args": {
-            "cmd": "emplace"
-        }
-    },
-    {
-        "caption": "Viewport: Apply",
-        "command": "viewport_stack",
-        "args": {
-            "cmd": "apply"
-        }
-    },
-    {
-        "caption": "Viewport: Clear",
-        "command": "viewport_stack",
-        "args": {
-            "cmd": "clear"
-        }
-    },
-    {
-        "caption": "Viewport: Show Stack",
-        "command": "viewport_stack",
-        "args": {
-            "cmd": "select_apply"
+            "selector": "comment, string.quoted.single.block.python, string.quoted.double.block.python"
         }
     }
 ]

@@ -37,7 +37,7 @@ class PythonImportFormatter(object):
         else:
             self.indent = ' '
             self.wrap_at = float('inf')
-        self.min_group_size = settings.get('sort_py_imports_group', 2) or \
+        self.min_group_size = settings.get('pwl_sort_py_imports_group', 2) or \
                 float('inf')
         self.split_by_type = True
 
@@ -51,8 +51,11 @@ class PythonImportFormatter(object):
                 atom = u'{0} as {1}'.format(alias.name, alias.asname)
             if i + 1 < len(aliases):
                 atom += ', '
+                more = 1
+            else:
+                more = 0
 
-            if pos + len(atom) > self.wrap_at:
+            if pos + len(atom) + more > self.wrap_at:
                 parts.append('\\\n')
                 if self.indent == ' ':
                     parts.append(' ' * start_pos)
@@ -152,7 +155,8 @@ class SortPythonImportsCommand(PythonSpecificCommand):
         formatter = PythonImportFormatter(view.settings())
 
         # Must be sorted.
-        regions = [view.full_line(sel) for sel in view.sel() if not sel.empty()]
+        regions = [view.full_line(sel)
+                   for sel in view.sel() if not sel.empty()]
         if not regions:
             regions.extend(view.find_all(IMPORT_RE))
         regions.reverse()
@@ -190,7 +194,8 @@ class AddPythonImportCommand(PythonSpecificCommand):
             text = ''
 
         # Ask the user for the import.
-        input_view = view.window().show_input_panel('module and symbols:', text,
+        input_view = view.window().show_input_panel('module and symbols:',
+                                                    text,
                                                     self.handle_add_import,
                                                     None, None)
         sel = input_view.sel()

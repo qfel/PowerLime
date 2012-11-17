@@ -1,0 +1,6 @@
+<snippet>
+    <tabTrigger>lang</tabTrigger>
+    <scope>source.haskell</scope>
+    <description>LANGUAGE pragma</description>
+    <content><![CDATA[{-# LANGUAGE ${0:ExtensionName} #-}]]></content>
+</snippet>

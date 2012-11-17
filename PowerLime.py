@@ -1,7 +1,7 @@
 from powerlime.format.c import *
 from powerlime.format.python import *
 # from powerlime.help.haskell import *
-# from powerlime.help.python import *
+from powerlime.help.python import *
 from powerlime.cursor import *
 from powerlime.layout import *
 from powerlime.misc import *

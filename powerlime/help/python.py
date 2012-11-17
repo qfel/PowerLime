@@ -6,15 +6,18 @@ import re
 
 from functools import partial
 from subprocess import PIPE, Popen
-from threading import Thread
 
 from sublime import MONOSPACE_FONT, Region, active_window, error_message, \
-    load_settings, set_timeout, status_message
-from sublime_plugin import EventListener, TextCommand
+    set_timeout, status_message
+from sublime_plugin import EventListener
 
 from powerlime.help.base import SelectionCommand
 from powerlime.util import ExternalPythonCaller, PythonSpecificCommand, \
     async_worker
+
+
+def is_python_source_file(file_name):
+    return file_name.endswith('.py') or file_name.endswith('.pyw')
 
 
 class PyDocHelpCommand(SelectionCommand, PythonSpecificCommand):
@@ -182,17 +185,25 @@ def async_status_message(msg):
     set_timeout(partial(status_message, msg), 0)
 
 
-def get_symbol_db_path(settings):
-    paths = settings.get('symbol_db_path', '$HOME/.symbols.db')
+def get_db_paths(settings):
+    paths = settings.get('pytags_db_path', '$HOME/.pytags.db')
     if isinstance(paths, basestring):
         return [os.path.expandvars(paths)]
     else:
         return map(os.path.expandvars, paths)
 
 
-class GlobalFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
+def get_symbol_roots(view):
+    settings = view.settings()
+    symbol_roots = settings.get('pytags_roots', [])
+    if settings.get('pytags_include_project_folders', True):
+        symbol_roots += view.window().folders()
+    return symbol_roots
+
+
+class PyFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
     def handle(self, text):
-        db = get_symbol_db_path(self.view.settings())
+        db = get_db_paths(self.view.settings())
 
         with symdb:
             symdb.set_db(db)
@@ -205,8 +216,9 @@ class GlobalFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
                 if i != -1:
                     self.goto(results[i])
 
-            self.view.window().show_quick_panel(map(self.format_result, results),
-                on_select)
+            self.view.window().show_quick_panel(map(self.format_result,
+                                                    results),
+                                                on_select)
         else:
             self.goto(results[0])
 
@@ -214,41 +226,37 @@ class GlobalFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
         view = self.view.window().open_file(result['file'])
         pos = (result['row'], result['col'])
         if view.is_loading():
-            GlobalFindSymbolListener.view_pos = pos
-            GlobalFindSymbolListener.view_id = view.id()
+            PyTagsListener.view_pos = pos
+            PyTagsListener.view_id = view.id()
         else:
-            GlobalFindSymbolListener.goto(view, pos)
+            PyTagsListener.goto(view, pos)
 
     def format_result(self, result):
         dir_name, file_name = os.path.split(result['file'])
-        return [
-            '.'.join(filter(
-                None,
-                (result['package'], result['scope'], result['symbol'])
-            )),
-            u'{0}:{1}'.format(file_name, result['row']),
-            dir_name
-        ]
+        return ['.'.join(filter(None, (result['package'], result['scope'],
+                                       result['symbol']))),
+                u'{0}:{1}'.format(file_name, result['row']),
+                dir_name]
 
 
-class GlobalFindSymbolListener(EventListener):
+class PyTagsListener(EventListener):
     view_id = None
 
     @staticmethod
-    def index_view(settings, view):
+    def index_view(view):
         def async():
             with symdb:
-                symdb.set_db(get_symbol_db_path(settings))
+                symdb.set_db(get_db_paths(view.settings()))
                 if symdb.process_file(view.file_name()):
                     async_status_message('Indexed ' + view.file_name())
+                symdb.commit()
         async_worker.execute(async)
 
     @classmethod
     def on_load(cls, view):
-        if view.file_name().endswith('.py'):
-            settings = load_settings('Preferences.sublime-settings')
-            if settings.get('symdb_parse_on_load'):
-                cls.index_view(settings, view)
+        if is_python_source_file(view.file_name()):
+            if view.settings().get('pytags_index_on_load'):
+                cls.index_view(view)
 
         if cls.view_id is not True and view.id() != cls.view_id:
             return
@@ -257,10 +265,9 @@ class GlobalFindSymbolListener(EventListener):
         cls.view_id = None
 
     def on_post_save(self, view):
-        if view.file_name().endswith('.py'):
-            settings = load_settings('Preferences.sublime-settings')
-            if settings.get('symdb_parse_on_save'):
-                self.index_view(settings, view)
+        if is_python_source_file(view.file_name()):
+            if view.settings().get('pytags_index_on_save'):
+                self.index_view(view)
 
     @staticmethod
     def goto(view, pos):
@@ -270,29 +277,29 @@ class GlobalFindSymbolListener(EventListener):
         view.show(sel, True)
 
 
-class BuildSymbolIndexCommand(PythonSpecificCommand):
+class PyBuildIndexCommand(PythonSpecificCommand):
     def run(self, edit, rebuild=False):
-        settings = self.view.settings()
-        symbol_roots = settings.get('symbol_roots', [])
-        if settings.get('symbols_include_project', True):
-            symbol_roots += self.view.window().folders()
-        if not symbol_roots:
-            return
-        BuildSymbolIndexCommand.thread = Thread(
-            target=self.process_roots,
-            args=(symbol_roots, get_symbol_db_path(settings), rebuild)
-        ).start()
+        async_worker.execute(self.async_process_files,
+                             get_symbol_roots(self.view),
+                             get_db_paths(self.view.settings()), rebuild)
 
-    def process_roots(self, symbol_roots, db, rebuild):
+    def async_process_files(self, symbol_roots, db_paths, rebuild):
         if rebuild:
-            os.remove(db)
-        with ExternalPythonCaller('symdb') as symdb:
-            symdb.set_db(db)
+            os.remove(db_paths[0])
+
+        with symdb:
+            symdb.set_db(db_paths)
+            paths = []
             for symbol_root in symbol_roots:
                 for root, dirs, files in os.walk(symbol_root):
                     for file_name in files:
-                        if file_name.endswith('.py'):
-                            path = os.path.abspath(os.path.join(root, file_name))
+                        if is_python_source_file(file_name):
+                            path = os.path.abspath(os.path.join(root,
+                                                                file_name))
+                            paths.append(path)
                             if symdb.process_file(path, rebuild):
                                 async_status_message('Indexed ' + path)
+            symdb.remove_other_files(paths)
+            symdb.commit()
+
         async_status_message('Done indexing')

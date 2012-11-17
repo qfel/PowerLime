@@ -3,6 +3,7 @@ import os
 import os.path
 
 from Queue import Empty, Queue
+from functools import partial
 from subprocess import PIPE, Popen
 from threading import Lock, Thread
 
@@ -24,7 +25,8 @@ class FunctionProxy(object):
     def __call__(self, *args, **kwargs):
         proc = self.caller.get_process()
         try:
-            pickle.dump((self.fname, args, kwargs), proc.stdin, PICKLE_PROTOCOL)
+            pickle.dump((self.fname, args, kwargs), proc.stdin,
+                        PICKLE_PROTOCOL)
             return pickle.load(proc.stdout)
         except (IOError, EOFError, pickle.UnpicklingError):
             self.caller.reset()
@@ -104,9 +106,9 @@ class WorkerThread(object):
             else:
                 f()
 
-    def execute(self, f):
+    def execute(self, _f, *args, **kwargs):
         with self.lock:
-            self.queue.put(f)
+            self.queue.put(partial(_f, *args, **kwargs))
             if self.thread is None:
                 self.thread = Thread(target=self.main)
                 self.thread.start()
@@ -120,7 +122,8 @@ def get_syntax_name(view_or_settings):
     else:
         settings = view_or_settings
 
-    return os.path.splitext(os.path.basename(settings.get('syntax')))[0].lower()
+    return os.path.splitext(os.path.basename(settings.get(
+        'syntax')))[0].lower()
 
 
 def SyntaxSpecificCommand(*syntax_names):

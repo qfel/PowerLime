@@ -2,13 +2,15 @@ import os
 import os.path
 import re
 
+from collections import deque
 from itertools import chain
 
-from sublime import LITERAL, Region, TRANSIENT, set_clipboard
+from sublime import LITERAL, Region, TRANSIENT, set_clipboard, set_timeout, \
+    windows
 from sublime_plugin import EventListener, TextCommand
 
 
-class CopyCurrentPath(TextCommand):
+class CopyCurrentPathCommand(TextCommand):
     ''' Copies path of currently opened file to clipboard '''
 
     def run(self, edit, relative=True):
@@ -24,7 +26,25 @@ class CopyCurrentPath(TextCommand):
 
 
 class FindAllVisible(TextCommand):
-    def run(self, edit):
+    def run(self, edit, custom=False):
+        if custom:
+            self.run_custom()
+        else:
+            self.run_compatible()
+
+    def run_compatible(self):
+        visible_region = self.view.visible_region()
+        self.view.window().run_command('find_all_under')
+        selections = self.view.sel()
+        new_selections = []
+        for sel in selections:
+            if sel.intersects(visible_region):
+                new_selections.append(sel)
+        selections.clear()
+        for sel in new_selections:
+            selections.add(sel)
+
+    def run_custom(self):
         view = self.view
         visible_region = view.visible_region()
         sel = view.sel()
@@ -172,23 +192,109 @@ class FoldBySelectorCommand(TextCommand):
             self.view.unfold(regions)
 
 
-class LastEditListener(EventListener):
-    state = {}
+class PositionHistoryState(object):
+    __slots__ = ('stack', 'index')
 
-    def on_modified(self, view):
-        self.state[view.id()] = (view.viewport_position(), tuple(view.sel()))
+    def __init__(self, stack, index):
+        self.stack = stack
+        self.index = index
 
-    def on_close(self, view):
-        del self.state[view.id()]
+
+def get_rows_set(view, regions):
+    rows = set()
+    for region in regions:
+        rows.add(view.rowcol(region.a)[0])
+        rows.add(view.rowcol(region.b)[0])
+    return rows
+
+
+class PositionHistoryManager(EventListener):
+    states = {}
+    next_id = 0
+
+    def __init__(self):
+        self.delay_gc()
+
+    @classmethod
+    def delay_gc(cls):
+        set_timeout(cls.do_gc, 60 * 1000)
+
+    @classmethod
+    def do_gc(cls):
+        view_ids = set(cls.states.iterkeys())
+        for window in windows():
+            for view in window.views():
+                view_ids.discard(view.id())
+        for view_id in view_ids:
+            del cls.states[view_id]
+        cls.delay_gc()
+
+    @classmethod
+    def on_modified(cls, view):
+        history_size = view.settings().get('pwl_position_history_size')
+        if not history_size:
+            return
+
+        view_id = view.id()
+        replace = False
+        state = cls.states.get(view_id)
+        if state is not None:
+            # Check if top state should be updated or new one should be pushed.
+            sel_rows = get_rows_set(view, view.sel())
+            old_rows = get_rows_set(view,
+                                    view.get_regions(state.stack[state.index]))
+            for row1 in sel_rows:
+                for row2 in old_rows:
+                    if abs(row1 - row2) <= 1:
+                        replace = True
+                        break
+        else:
+            state = cls.states[view_id] = PositionHistoryState(deque(), 0)
+
+        # Drop skipped history entries.
+        for _ in xrange(state.index):
+            view.erase_regions(state.stack.popleft())
+        state.index = 0
+
+        # Append or replace new entry as the top of the stack.
+        if not replace:
+            state.stack.appendleft(cls.get_state(view))
+
+            # Drop old entries.
+            while len(state.stack) > history_size:
+                view.erase_regions(state.stack.pop())
+        else:
+            view.add_regions(state.stack[0], list(view.sel()), '')
+
+    @classmethod
+    def on_close(cls, view):
+        cls.states.pop(view.id(), None)
+
+    @classmethod
+    def get_state(cls, view):
+        key = 'mod_{0}'.format(cls.next_id)
+        cls.next_id += 1
+        view.add_regions(key, list(view.sel()), '')
+        return key
+
+    @classmethod
+    def move_by(cls, view, delta):
+        state = cls.states.get(view.id())
+        if state is None or not state.stack:
+            return
+
+        state.index = max(0, min(state.index + delta, len(state.stack) - 1))
+        regions = view.get_regions(state.stack[state.index])
+
+        sel = view.sel()
+        sel.clear()
+        for region in regions:
+            sel.add(region)
+
+        if regions:
+            view.show(regions[0])
 
 
 class GotoLastEditCommand(TextCommand):
-    def run(self, edit, animate=True):
-        state = LastEditListener.state.get(self.view.id())
-        if state is not None:
-            print state[0]
-            self.view.set_viewport_position(state[0], animate)
-            sel = self.view.sel()
-            sel.clear()
-            for region in state[1]:
-                sel.add(region)
+    def run(self, edit, delta=0):
+        PositionHistoryManager.move_by(self.view, delta)

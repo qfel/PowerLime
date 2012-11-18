@@ -11,7 +11,7 @@ class SymbolDatabase(object):
         self.cur = self.db.cursor()
         self.cur.executescript('''
             CREATE TABLE IF NOT EXISTS symbols (
-                file_id INTEGER REFERENCES files(rowid),
+                file_id INTEGER REFERENCES files(id),
                 symbol TEXT NOT NULL,  -- Symbol name, valid Python identifier.
                 scope TEXT NOT NULL,   -- Scope inside a file (eg. class name).
                 package TEXT NOT NULL, -- Package name (eg. "os.path").
@@ -21,6 +21,7 @@ class SymbolDatabase(object):
             CREATE INDEX IF NOT EXISTS symbols_symbol ON symbols(symbol);
 
             CREATE TABLE IF NOT EXISTS files (
+                id INTEGER PRIMARY KEY,
                 path TEXT NOT NULL UNIQUE,
                 timestamp REAL NOT NULL    -- Last modification time.
             );
@@ -46,7 +47,7 @@ class SymbolDatabase(object):
         self.cur.execute('''
             INSERT INTO symbols(file_id, symbol, scope, package, row, col)
             VALUES(
-                (SELECT rowid FROM files WHERE path = :path),
+                (SELECT id FROM files WHERE path = :path),
                 :symbol, :scope, :package, :row, :col
             )
         ''', locals())
@@ -54,19 +55,19 @@ class SymbolDatabase(object):
     def clear_file(self, name):
         self.cur.execute('''
             DELETE FROM symbols WHERE
-                file_id = (SELECT rowid FROM files WHERE path = :name)
+                file_id = (SELECT id FROM files WHERE path = :name)
         ''', locals())
 
     def remove_other_files(self, file_paths):
         self.cur.execute('''
             CREATE TEMP TABLE file_ids (
-                file_id INTEGER REFERENCES files(rowid)
+                file_id INTEGER REFERENCES files(id)
             )
         ''')
         for file_path in file_paths:
             self.cur.execute('''
                 INSERT INTO file_ids
-                SELECT rowid
+                SELECT id
                 FROM files WHERE path = :file_path
             ''', {'file_path': file_path})
         self.cur.execute('''
@@ -74,7 +75,7 @@ class SymbolDatabase(object):
                 SELECT file_id FROM file_ids)
         ''')
         self.cur.execute('''
-            DELETE FROM files WHERE rowid NOT IN (
+            DELETE FROM files WHERE id NOT IN (
                 SELECT file_id FROM file_ids)
         ''')
 
@@ -117,7 +118,7 @@ class SymbolDatabase(object):
                 SELECT s.symbol, s.scope, s.package, s.row, s.col, f.path
                 FROM {db_prefix}symbols s, {db_prefix}files f
                 WHERE
-                    s.file_id = f.rowid AND
+                    s.file_id = f.id AND
                     s.symbol = :symbol AND
                     s.scope GLOB :scope AND
                     s.package GLOB :package
@@ -132,7 +133,7 @@ class SymbolDatabase(object):
                 SELECT s.symbol, s.scope, s.package, s.row, s.col, f.path
                 FROM {db_prefix}symbols s, {db_prefix}files f
                 WHERE
-                    s.file_id = f.rowid
+                    s.file_id = f.id
                 ORDER BY s.symbol, f.path, s.row
             '''.format(db_prefix=db_prefix))
             for row in self.cur:
@@ -142,7 +143,7 @@ class SymbolDatabase(object):
         self.cur.execute('''
             SELECT DISTINCT f.path
             FROM symbols s, files f
-            WHERE s.file_id = f.rowid
+            WHERE s.file_id = f.id
         ''')
         return (row[0] for row in self.cur)
 

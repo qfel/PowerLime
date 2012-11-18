@@ -36,9 +36,9 @@ class SymbolDatabase(object):
 
         # Performance sucks when using views.
         # self.cur.execute('CREATE TEMP VIEW all_symbols AS ' +
-        #     ' UNION '.join(
-        #         'SELECT * FROM {}'.format(table_name)
-        #         for table_name in table_names
+        #     ' UNION ALL '.join(
+        #         'SELECT * FROM {prefix}symbols'.format(prefix)
+        #         for prefix in self.db_prefixes
         #     )
         # )
 
@@ -162,14 +162,14 @@ class SymbolExtractor(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         self.add_symbol(node.name, node)
-        try:
-            self.this = node.args.args[0].id
-        except (IndexError, AttributeError):
-            pass
-        else:
-            if self.this in ('cls', 'self'):
-                self.generic_visit(node)
-            self.this = None
+        # try:
+        #     self.this = node.args.args[0].id
+        # except (IndexError, AttributeError):
+        #     pass
+        # else:
+        #     if self.this in ('cls', 'self'):
+        #         self.generic_visit(node)
+        #     self.this = None
 
     def visit_ClassDef(self, node):
         if self.this is None:

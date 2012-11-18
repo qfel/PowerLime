@@ -1,0 +1,9 @@
+<snippet>
+    <tabTrigger>classm</tabTrigger>
+    <scope>source.python</scope>
+    <description>Class Method</description>
+
+    <content><![CDATA[@classmethod
+def ${1:function}(cls${2}):
+    ${0:pass}]]></content>
+</snippet>

@@ -8,7 +8,7 @@ from functools import partial
 from subprocess import PIPE, Popen
 
 from sublime import MONOSPACE_FONT, Region, active_window, error_message, \
-    set_timeout, status_message
+    message_dialog, set_timeout, status_message
 from sublime_plugin import EventListener
 
 from powerlime.help.base import SelectionCommand
@@ -185,33 +185,20 @@ def async_status_message(msg):
     set_timeout(partial(status_message, msg), 0)
 
 
-def get_db_paths(settings):
-    paths = settings.get('pytags_db_path', '$HOME/.pytags.db')
-    if isinstance(paths, basestring):
-        return [os.path.expandvars(paths)]
-    else:
-        return map(os.path.expandvars, paths)
-
-
-def get_symbol_roots(view):
-    settings = view.settings()
-    symbol_roots = settings.get('pytags_roots', [])
-    if settings.get('pytags_include_project_folders', True):
-        symbol_roots += view.window().folders()
-    return symbol_roots
+def get_ordered_databases(settings):
+    databases = settings.get('pytags_databases', [])
+    databases.sort(key=lambda db: db.get('index', float('inf')))
+    return databases
 
 
 class PyFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
     def handle(self, text):
-        db = get_db_paths(self.view.settings())
-
+        databases = get_ordered_databases(self.view.settings())
         with symdb:
-            symdb.set_db(db)
+            symdb.set_db([os.path.expandvars(db['path']) for db in databases])
             results = symdb.query_occurrences(text)
-            if not results:
-                results = symdb.query_all()
 
-        if len(results) != 1:
+        if len(results) > 1:
             def on_select(i):
                 if i != -1:
                     self.goto(results[i])
@@ -219,17 +206,14 @@ class PyFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
             self.view.window().show_quick_panel(map(self.format_result,
                                                     results),
                                                 on_select)
-        else:
+        elif results:
             self.goto(results[0])
+        else:
+            message_dialog('Symbol "{0}" not found'.format(text))
 
     def goto(self, result):
         view = self.view.window().open_file(result['file'])
-        pos = (result['row'], result['col'])
-        if view.is_loading():
-            PyTagsListener.view_pos = pos
-            PyTagsListener.view_id = view.id()
-        else:
-            PyTagsListener.goto(view, pos)
+        PyTagsListener.goto(view, (result['row'], result['col']))
 
     def format_result(self, result):
         dir_name, file_name = os.path.split(result['file'])
@@ -240,37 +224,64 @@ class PyFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
 
 
 class PyTagsListener(EventListener):
-    view_id = None
+    # Id of the view that is still being loaded, but must be navigated.
+    pending_view_id = None
+
+    @classmethod
+    def index_view(cls, view):
+        file_name = view.file_name()
+        norm_file_name = os.path.normcase(file_name)
+        for database in get_ordered_databases(view.settings()):
+            roots = database.get('roots')
+            if roots:
+                for root in roots:
+                    root = os.path.normcase(
+                        os.path.normpath(os.path.expandvars(root)))
+                    if norm_file_name.startswith(root + os.sep):
+                        break
+                else:
+                    continue
+
+            pattern = database.get('pattern')
+            if pattern and not re.search(pattern, file_name):
+                continue
+
+            async_worker.execute(cls.async_process_file, file_name,
+                                 database['path'])
 
     @staticmethod
-    def index_view(view):
-        def async():
-            with symdb:
-                symdb.set_db(get_db_paths(view.settings()))
-                if symdb.process_file(view.file_name()):
-                    async_status_message('Indexed ' + view.file_name())
-                symdb.commit()
-        async_worker.execute(async)
+    def async_process_file(file_name, database_path):
+        with symdb:
+            symdb.set_db([os.path.expandvars(database_path)])
+            if symdb.process_file(file_name):
+                async_status_message('Indexed ' + file_name)
+            symdb.commit()
 
     @classmethod
     def on_load(cls, view):
-        if is_python_source_file(view.file_name()):
-            if view.settings().get('pytags_index_on_load'):
-                cls.index_view(view)
+        if is_python_source_file(view.file_name()) and \
+                view.settings().get('pytags_index_on_load'):
+            cls.index_view(view)
 
-        if cls.view_id is not True and view.id() != cls.view_id:
-            return
-
-        cls.goto(view, cls.view_pos)
-        cls.view_id = None
+        if view.id() == cls.pending_view_id:
+            cls.goto(view, cls.pending_view_pos)
+            cls.pending_view_id = None
 
     def on_post_save(self, view):
         if is_python_source_file(view.file_name()):
             if view.settings().get('pytags_index_on_save'):
                 self.index_view(view)
 
-    @staticmethod
-    def goto(view, pos):
+    @classmethod
+    def goto(cls, view, pos):
+        if view.is_loading():
+            cls.pending_view_pos = pos
+            cls.pending_view_id = view.id()
+        else:
+            cls.goto_loaded(view, pos)
+
+    @classmethod
+    def goto_loaded(cls, view, pos):
         sel = view.sel()
         sel.clear()
         sel.add(Region(view.text_point(*pos)))
@@ -280,26 +291,37 @@ class PyTagsListener(EventListener):
 class PyBuildIndexCommand(PythonSpecificCommand):
     def run(self, edit, rebuild=False):
         async_worker.execute(self.async_process_files,
-                             get_symbol_roots(self.view),
-                             get_db_paths(self.view.settings()), rebuild)
+                             self.view.settings().get('pytags_databases', []),
+                             self.view.window().folders(), rebuild)
 
-    def async_process_files(self, symbol_roots, db_paths, rebuild):
-        if rebuild:
-            os.remove(db_paths[0])
-
+    @staticmethod
+    def async_process_files(databases, project_folders, rebuild):
         with symdb:
-            symdb.set_db(db_paths)
-            paths = []
-            for symbol_root in symbol_roots:
-                for root, dirs, files in os.walk(symbol_root):
-                    for file_name in files:
-                        if is_python_source_file(file_name):
-                            path = os.path.abspath(os.path.join(root,
-                                                                file_name))
-                            paths.append(path)
-                            if symdb.process_file(path, rebuild):
-                                async_status_message('Indexed ' + path)
-            symdb.remove_other_files(paths)
-            symdb.commit()
+            for database in databases:
+                if rebuild:
+                    os.remove(database['path'])
+
+                roots = database.get('roots', [])
+                for i, root in enumerate(roots):
+                    roots[i] = os.path.expandvars(root)
+                if database.get('include_project_folders'):
+                    roots.extend(project_folders)
+
+                symdb.set_db([os.path.expandvars(database['path'])])
+                paths = []
+                for symbol_root in roots:
+                    for root, dirs, files in os.walk(symbol_root):
+                        for file_name in files:
+                            if is_python_source_file(file_name):
+                                path = os.path.abspath(os.path.join(root,
+                                                                    file_name))
+                                pattern = database.get('pattern')
+                                if not pattern or re.search(pattern, path):
+                                    paths.append(path)
+                                    if symdb.process_file(path, rebuild):
+                                        async_status_message('Indexed ' + path)
+
+                symdb.remove_other_files(paths)
+                symdb.commit()
 
         async_status_message('Done indexing')

@@ -192,6 +192,8 @@ def get_ordered_databases(settings):
 
 
 class PyFindSymbolCommand(SelectionCommand, PythonSpecificCommand):
+    PROMPT = 'Symbol: '
+
     def handle(self, text):
         databases = get_ordered_databases(self.view.settings())
         with symdb:
@@ -231,8 +233,14 @@ class PyTagsListener(EventListener):
     def index_view(cls, view):
         file_name = view.file_name()
         norm_file_name = os.path.normcase(file_name)
+        if view.window():
+            project_folders = view.window().folders()
+        else:
+            project_folders = []
         for database in get_ordered_databases(view.settings()):
-            roots = database.get('roots')
+            roots = database.get('roots', [])
+            if database.get('include_project_folders'):
+                roots.extend(project_folders)
             if roots:
                 for root in roots:
                     root = os.path.normcase(

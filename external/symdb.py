@@ -14,7 +14,6 @@ class SymbolDatabase(object):
                 file_id INTEGER REFERENCES files(id),
                 symbol TEXT NOT NULL,  -- Symbol name, valid Python identifier.
                 scope TEXT NOT NULL,   -- Scope inside a file (eg. class name).
-                package TEXT NOT NULL, -- Package name (eg. "os.path").
                 row INTEGER NOT NULL,
                 col INTEGER NOT NULL
             );
@@ -23,8 +22,10 @@ class SymbolDatabase(object):
             CREATE TABLE IF NOT EXISTS files (
                 id INTEGER PRIMARY KEY,
                 path TEXT NOT NULL UNIQUE,
+                package TEXT NOT NULL,     -- Package name (eg. "os.path").
                 timestamp REAL NOT NULL    -- Last modification time.
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS files_path ON files(path);
         ''')
 
         self.db_prefixes = ['']
@@ -36,19 +37,21 @@ class SymbolDatabase(object):
             self.db_prefixes.append('{}.'.format(db_name))
 
         # Performance sucks when using views.
-        # self.cur.execute('CREATE TEMP VIEW all_symbols AS ' +
-        #     ' UNION ALL '.join(
-        #         'SELECT * FROM {prefix}symbols'.format(prefix)
-        #         for prefix in self.db_prefixes
-        #     )
-        # )
+        self.cur.execute('CREATE TEMP VIEW all_symbols AS ' +
+            ' UNION ALL '.join(
+                'SELECT *, {0} AS dbid FROM {1}symbols'.format(i, prefix)
+                for i, prefix in enumerate(self.db_prefixes)))
+        self.cur.execute('CREATE TEMP VIEW all_files AS ' +
+            ' UNION ALL '.join(
+                'SELECT *, {0} AS dbid FROM {1}files'.format(i, prefix)
+                for i, prefix in enumerate(self.db_prefixes)))
 
-    def add(self, symbol, scope, package, path, row, col):
+    def add(self, symbol, scope, path, row, col):
         self.cur.execute('''
-            INSERT INTO symbols(file_id, symbol, scope, package, row, col)
+            INSERT INTO symbols(file_id, symbol, scope, row, col)
             VALUES(
                 (SELECT id FROM files WHERE path = :path),
-                :symbol, :scope, :package, :row, :col
+                :symbol, :scope, :row, :col
             )
         ''', locals())
 
@@ -80,23 +83,27 @@ class SymbolDatabase(object):
         ''')
 
     def update_file_time(self, path, time):
-        args = locals()
         self.cur.execute('''
             SELECT timestamp FROM files WHERE path = :path
-        ''', args)
+        ''', locals())
         row = self.cur.fetchone()
         if row:
             if row[0] < time:
+                package = get_package(path)
                 self.cur.execute('''
-                    UPDATE files SET timestamp = :time WHERE path = :path
-                ''', args)
+                    UPDATE files
+                    SET timestamp = :time, package = :package
+                    WHERE path = :path
+                ''', locals())
                 return True
             else:
                 return False
         else:
+            package = get_package(path)
             self.cur.execute('''
-                INSERT INTO files(path, timestamp) VALUES(:path, :time)
-            ''', args)
+                INSERT INTO files(path, package, timestamp)
+                VALUES(:path, :package, :time)
+            ''', locals())
             return True
 
     def commit(self):
@@ -112,32 +119,60 @@ class SymbolDatabase(object):
             'file': row[5]
         }
 
-    def occurrences(self, symbol, scope, package):
-        for db_prefix in self.db_prefixes:
-            self.cur.execute('''
-                SELECT s.symbol, s.scope, s.package, s.row, s.col, f.path
-                FROM {db_prefix}symbols s, {db_prefix}files f
-                WHERE
-                    s.file_id = f.id AND
-                    s.symbol = :symbol AND
-                    s.scope GLOB :scope AND
-                    s.package GLOB :package
-                ORDER BY s.symbol, f.path, s.row
-            '''.format(db_prefix=db_prefix), locals())
-            for row in self.cur:
-                yield self._result_row_to_dict(row)
+    def occurrences(self, symbol):
+        namespace, sep, symbol = symbol.rpartition('.')
+        if sep:
+            namespace = '*.' + namespace
+        else:
+            namespace = '*'
+
+        self.cur.execute('''
+            SELECT s.symbol, s.scope, f.package, s.row, s.col, f.path
+            FROM all_symbols s, all_files f
+            WHERE
+                s.file_id = f.id AND
+                s.dbid = f.dbid AND
+                s.symbol = :symbol AND
+                GLOB(:namespace, '.' || f.package || '.' || s.scope)
+            ORDER BY s.symbol, f.path, s.row
+        ''', locals())
+        for row in self.cur:
+            yield self._result_row_to_dict(row)
+
+        # for db_prefix in self.db_prefixes:
+        #     self.cur.execute('''
+        #         SELECT s.symbol, s.scope, f.package, s.row, s.col, f.path
+        #         FROM {db_prefix}symbols s, {db_prefix}files f
+        #         WHERE
+        #             s.file_id = f.id AND
+        #             s.symbol = :symbol AND
+        #             s.scope GLOB :scope AND
+        #             f.package GLOB :package
+        #         ORDER BY s.symbol, f.path, s.row
+        #     '''.format(db_prefix=db_prefix), locals())
+        #     for row in self.cur:
+        #         yield self._result_row_to_dict(row)
 
     def all(self):
-        for db_prefix in self.db_prefixes:
-            self.cur.execute('''
-                SELECT s.symbol, s.scope, s.package, s.row, s.col, f.path
-                FROM {db_prefix}symbols s, {db_prefix}files f
-                WHERE
-                    s.file_id = f.id
-                ORDER BY s.symbol, f.path, s.row
-            '''.format(db_prefix=db_prefix))
-            for row in self.cur:
-                yield self._result_row_to_dict(row)
+        self.cur.execute('''
+            SELECT s.symbol, s.scope, f.package, s.row, s.col, f.path
+            FROM all_symbols s, all_files f
+            WHERE
+                s.file_id = f.id AND
+                s.dbid = f.dbid
+            ORDER BY s.symbol, f.path, s.row
+        ''', locals())
+
+        # for db_prefix in self.db_prefixes:
+        #     self.cur.execute('''
+        #         SELECT s.symbol, s.scope, f.package, s.row, s.col, f.path
+        #         FROM {db_prefix}symbols s, {db_prefix}files f
+        #         WHERE
+        #             s.file_id = f.id
+        #         ORDER BY s.symbol, f.path, s.row
+        #     '''.format(db_prefix=db_prefix))
+        #     for row in self.cur:
+        #         yield self._result_row_to_dict(row)
 
     def indexed_files(self):
         self.cur.execute('''
@@ -149,9 +184,8 @@ class SymbolDatabase(object):
 
 
 class SymbolExtractor(ast.NodeVisitor):
-    def __init__(self, db, path, package):
+    def __init__(self, db, path):
         self.path = path
-        self.package = package
         self.db = db
         self.scope = []
         self.this = None
@@ -194,8 +228,8 @@ class SymbolExtractor(ast.NodeVisitor):
                 self.add_symbol(target.id, target)
 
     def add_symbol(self, name, node):
-        self.db.add(name, '.'.join(self.scope), self.package, self.path,
-            node.lineno - 1, node.col_offset)
+        self.db.add(name, '.'.join(self.scope), self.path, node.lineno - 1,
+                    node.col_offset)
 
 
 db = None
@@ -210,7 +244,10 @@ def get_package(path):
     assert path.endswith('.py')
     path = path[:-3]
     path, module = os.path.split(path)
-    package = [module]
+    if module == '__init__':
+        package = []
+    else:
+        package = [module]
     while True:
         new_path, module = os.path.split(path)
         if not os.path.isfile(os.path.join(path, '__init__.py')):
@@ -230,7 +267,7 @@ def process_file(path, force=False):
             file_ast = ast.parse(open(path).read(), path)
         except:
             return False
-        SymbolExtractor(db, path, get_package(path)).visit(file_ast)
+        SymbolExtractor(db, path).visit(file_ast)
         return True
     else:
         return False
@@ -240,8 +277,8 @@ def remove_other_files(file_paths):
     db.remove_other_files(file_paths)
 
 
-def query_occurrences(symbol, scope='*', package='*'):
-    return list(db.occurrences(symbol, scope, package))
+def query_occurrences(symbol):
+    return list(db.occurrences(symbol))
 
 
 def query_all():

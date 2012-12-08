@@ -4,12 +4,23 @@ import re
 from collections import namedtuple
 
 from sublime import Region, error_message, status_message
+from sublime_plugin import EventListener
 
 from powerlime.util import PythonSpecificCommand
 
 
+IMPORT_START_RE = r'(?:from[ \t]+[\w.]+[ \t]+)?import[\ \t]+'
+IMPORT_PAREN_RE = r'\([^(#)]*\)[\ \t]*'
+IMPORT_ESC_RE = r'[^\\#\n]*(?:\\\n[^\\#\n]*)*'
+
 # A block of consecutive module-level import lines.
-IMPORT_RE = r'^(?:(?:import|from)\s[^\\\n]*(\\\n[^\\\n]*)*\n)+'
+IMPORT_RE = r'^({0}(?:{1}|{2})\n)+'.format(IMPORT_START_RE, IMPORT_PAREN_RE,
+                                           IMPORT_ESC_RE)
+
+
+# Catches module name in <from module import ...> statement.
+FROM_IMPORT_CATCH_RE = r'^[ \t]*from[ \t]([\w.]+)[ \t]import[ \t]'
+
 
 # A parsed group of imports, holding it's position within the file.
 ImportGroup = namedtuple('ImportGroup', 'region imports')
@@ -201,6 +212,7 @@ class AddPythonImportCommand(PythonSpecificCommand):
         sel = input_view.sel()
         sel.clear()
         sel.add(Region(0, input_view.size()))
+        PythonAddImportCompletion.enable_completions(input_view, self.view)
 
     def handle_add_import(self, text):
         tokens = text.split()
@@ -328,3 +340,28 @@ class AddPythonImportCommand(PythonSpecificCommand):
     #         self.view.window().show_quick_panel(
     #                 [self.view.substr(group.region) for group in groups],
     #                 handle_group_choice)
+
+
+class PythonAddImportCompletion(EventListener):
+    view_id = None
+
+    @classmethod
+    def on_query_completions(cls, view, prefix, locations):
+        if view.id() != cls.view_id:
+            return
+
+        modules = []
+        cls.src_view.find_all(FROM_IMPORT_CATCH_RE, 0, r'\1', modules)
+        print modules
+        return [(module, module + ' ') for module in modules]
+
+    @classmethod
+    def on_close(cls, view):
+        if view.id() == cls.view_id:
+            cls.view_id = None
+            cls.src_view = None
+
+    @classmethod
+    def enable_completions(cls, view, src_view):
+        cls.view_id = view.id()
+        cls.src_view = src_view

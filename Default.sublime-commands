@@ -33,8 +33,15 @@
         "command": "sort_includes"
     },
     {
-        "caption": "Copy Current File Path",
+        "caption": "Copy Current File Path (Relative)",
         "command": "copy_current_path"
+    },
+    {
+        "caption": "Copy Current File Path (Absolute)",
+        "command": "copy_current_path",
+        "args": {
+            "relative": false
+        }
     },
     {
         "caption": "Goto Parent Block",
@@ -44,10 +51,14 @@
         }
     },
     {
-        "caption": "Fold All Comments",
+        "caption": "Code Folding: Fold All Comments",
         "command": "fold_by_selector",
         "args": {
             "selector": "comment, string.quoted.single.block.python, string.quoted.double.block.python"
         }
+    },
+    {
+        "caption": "File: Fork View",
+        "command": "fork_view"
     }
 ]

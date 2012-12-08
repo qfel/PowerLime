@@ -219,27 +219,35 @@ class MoveToVisibleCommand(TextCommand):
             raise ValueError('Invalid position: ' + position)
 
 
-# class ForkViewCommand(TextCommand):
-#     def run(self, edit, group='+1', position='=0', overflow='bounce'):
-#         window = self.view.window()
-#         num_groups = window.num_groups()
+class ForkViewCommand(TextCommand):
+    def run(self, edit, group=1, wrap=False, focus_new=True):
+        assert group in (1, -1)
 
-#         if group == 'last':
-#             group = num_groups - 1
-#         elif group.startswith('='):
-#             group = int(group[1:])
-#         elif group[0] in '+-':
-#             group = window.active_group() + int(group)
-#         else:
-#             raise ValueError('Invalid group format')
+        window = self.view.window()
+        num_groups = window.num_groups()
+        if num_groups > 1:
+            group = window.active_group() + group
+            if group == -1:
+                if wrap:
+                    group = num_groups - 1
+                else:
+                    group = 1
+            elif group == num_groups:
+                if wrap:
+                    group = 0
+                else:
+                    group = num_groups - 2
+        else:
+            group = 0
 
-#         if overflow == 'wrap':
+        window.run_command('clone_file')
+        new_view = window.active_view()
+        assert self.view.id() != new_view.id()
+        window.run_command('move_to_group', {'group': group})
 
+        new_view.sel().clear()
+        new_view.sel().add_all(self.view.sel())
+        new_view.set_viewport_position(self.view.viewport_position(), False)
 
-#         if position == 'last':
-#             len(window.views_in_group(group))
-
-#         self.view.run_command('clone_file')
-#         if mode == 'relative_index':
-#             (group, index) = window.get_view_index(self.view)
-#             window.set_view_index(window.active_view(), )
+        if not focus_new:
+            window.focus_view(self.view)

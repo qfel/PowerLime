@@ -26,11 +26,11 @@ class CopyCurrentPathCommand(TextCommand):
 
 
 class FindAllVisible(TextCommand):
-    def run(self, edit, custom=False):
-        if custom:
-            self.run_custom()
-        else:
+    def run(self, edit, compatible=True):
+        if compatible:
             self.run_compatible()
+        else:
+            self.run_custom()
 
     def run_compatible(self):
         visible_region = self.view.visible_region()

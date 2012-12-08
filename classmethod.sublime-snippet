@@ -1,5 +1,5 @@
 <snippet>
-    <tabTrigger>classm</tabTrigger>
+    <tabTrigger>clsm</tabTrigger>
     <scope>source.python</scope>
     <description>Class Method</description>
 
